@@ -111,6 +111,14 @@ async function sheetsAppend(env, token, sheet, row){
   });
   const d = await res.json(); if (d.error) throw new Error('sheets_append: '+d.error.message); return d;
 }
+async function sheetsAppendMany(env, token, sheet, rows){
+  if(!rows.length) return;
+  const res = await fetch(`${API}/${env.INVENTORY_SHEET_ID}/values/${encodeURIComponent("'"+sheet+"'!A1")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+    method:'POST', headers:{ authorization:'Bearer '+token, 'content-type':'application/json' },
+    body: JSON.stringify({ values: rows })
+  });
+  const d = await res.json(); if (d.error) throw new Error('sheets_append_many: '+d.error.message); return d;
+}
 function hindex(values){ // header -> col index map from row 0
   const h={}; (values[0]||[]).forEach((v,i)=>{ if(v!=null&&String(v).trim()!=='') h[String(v).trim()]=i; }); return h;
 }
@@ -232,6 +240,8 @@ async function postInventory(request, env){
     case 'adjust10x':       return adjust10x(env, token, body);
     case 'add10xBox':       return add10xBox(env, token, body);
     case 'adjustTotalseq':  return adjustTotalseq(env, token, body);
+    case 'addTotalseq':     return addTotalseq(env, token, body);
+    case 'bulkAdd':         return bulkAdd(env, token, body);
     case 'reserve':         return reserve(env, token, body);
     case 'releaseReservation': return releaseReservation(env, token, body);
     default: return { ok:false, error:'unknown_action:'+action };
@@ -280,6 +290,7 @@ async function addReagent(env, token, b){
   const put=(name,val)=>{ if(h[name]!=null) row[h[name]]=val; };
   put('item_id',newId); put('Item',b.name||''); put('Category',b.subcategory||'Reagent');
   put('Type',b.type||''); put('Concentration',b.concentration||''); put('Sequence',b.sequence||'');
+  put('Catalog #',b.catalog||''); put('Vendor',b.vendor||'');
   put('Container',b.container||''); put('Pack size',pack); put('Unit',b.unit||'');
   put('On hand (containers)',cont); put('On hand (units)',units);
   put('Reorder at',b.reorderAt!=null?Number(b.reorderAt):''); put('Order status',b.orderStatus||'stocked');
@@ -361,6 +372,64 @@ async function adjustTotalseq(env, token, b){
   await sheetsUpdate(env, token, "'"+sheet+"'!"+colLetter(c)+row, [nv]);
   await logMovement(env, token, { category:'Totalseq', item_key:b.itemKey, lot:(r[h['Lot Number']]||''), item_name:(r[h['Storage Box']]||'')+' '+(r[0]||''), change:(b.mode==='set'?'set='+nv:(b.mode==='remove'?'-':'+')+delta), unit:'uL', new_on_hand:nv, reason:b.reason||b.mode, experiment:b.experiment||'', by:b.by||'' });
   return { ok:true, remaining:nv };
+}
+
+// build a totalseq row (auto Tube ID if blank)
+function buildTotalseqRow(h, headerLen, b, autoId){
+  const row=new Array(Math.max(headerLen,9)).fill('');
+  const put=(name,val)=>{ if(h[name]!=null) row[h[name]]=val; };
+  const tube=(b.tubeId&&String(b.tubeId).trim())||autoId;
+  // first column is the Tube ID key regardless of header label
+  row[0]=tube;
+  put('Type',b.type||'HTO'); put('Storage Box',b.storageBox||''); put('Catalog Number',b.catalog||'');
+  put('Lot Number',b.lot||''); put('TotalSeq Version',b.version||''); put('Hashtag Number',b.hashtag||'');
+  put('Volume/Quantity Remaining',b.remaining!=null&&b.remaining!==''?b.remaining:''); put('Reserved For',b.reservedFor||'');
+  return {row, tube};
+}
+async function addTotalseq(env, token, b){
+  const sheet=SHEETS.totalseq; const v=await readTab(env,token,sheet); const h=hindex(v);
+  let maxN=0; for(let i=1;i<v.length;i++){ const id=(v[i]&&v[i][0]||'').toString(); const m=id.match(/(\d+)\s*$/); if(m){ const n=parseInt(m[1],10); if(n>maxN)maxN=n; } }
+  const {row,tube}=buildTotalseqRow(h,(v[0]||[]).length,b,'TS-'+String(maxN+1).padStart(3,'0'));
+  await sheetsAppend(env, token, sheet, row);
+  await logMovement(env, token, { category:'Totalseq', item_key:tube, lot:b.lot||'', item_name:(b.storageBox||'')+' '+tube, change:'new tube', unit:'', new_on_hand:b.remaining||'', reason:'new item', experiment:'', by:b.by||'' });
+  return { ok:true, tubeId:tube };
+}
+
+// bulk add many items to one category in a single append
+async function bulkAdd(env, token, b){
+  const cat=b.category; const items=Array.isArray(b.rows)?b.rows:[];
+  if(!items.length) return { ok:false, error:'no_rows' };
+  const sheetMap={ reagents:'Reagents & Supplies', oligos:'Oligos', antibodies:'Antibodies', totalseq:SHEETS.totalseq };
+  const sheet=sheetMap[cat]; if(!sheet) return { ok:false, error:'bad_category' };
+  const v=await readTab(env,token,sheet); const h=hindex(v); const headerLen=(v[0]||[]).length;
+  const rows=[]; const assigned=[];
+
+  if(cat==='totalseq'){
+    let maxN=0; for(let i=1;i<v.length;i++){ const id=(v[i]&&v[i][0]||'').toString(); const m=id.match(/(\d+)\s*$/); if(m){ const n=parseInt(m[1],10); if(n>maxN)maxN=n; } }
+    items.forEach((it,k)=>{ const {row,tube}=buildTotalseqRow(h,headerLen,it,'TS-'+String(maxN+1+k).padStart(3,'0')); rows.push(row); assigned.push(tube); });
+  } else {
+    let maxN=0, prefix=(cat==='oligos'?'OL':cat==='antibodies'?'AB':'R');
+    for(let i=1;i<v.length;i++){ const id=(v[i]&&v[i][0]||'').toString().trim(); const m=id.match(/^([A-Za-z]+)0*(\d+)$/); if(m){ prefix=m[1]; const n=parseInt(m[2],10); if(n>maxN)maxN=n; } }
+    items.forEach((it,k)=>{
+      const newId=prefix+String(maxN+1+k).padStart(3,'0');
+      const pack=Number(it.packSize)||1;
+      const cont=(it.onHandContainers!=null&&it.onHandContainers!==''?Number(it.onHandContainers):0);
+      const units=(it.onHandUnits!=null&&it.onHandUnits!==''?Number(it.onHandUnits):(/^[0-9]*\.?[0-9]+$/.test(String(it.packSize||'').trim())?cont*pack:''));
+      const row=new Array(headerLen).fill('');
+      const put=(name,val)=>{ if(h[name]!=null) row[h[name]]=val; };
+      put('item_id',newId); put('Item',it.name||''); put('Category',it.subcategory||(cat==='antibodies'?'Antibody':cat==='oligos'?'Oligo':'Reagent'));
+      put('Type',it.type||''); put('Concentration',it.concentration||''); put('Sequence',it.sequence||'');
+      put('Catalog #',it.catalog||''); put('Vendor',it.vendor||'');
+      put('Container',it.container||''); put('Pack size',it.packSize!=null&&it.packSize!==''?pack:''); put('Unit',it.unit||'');
+      put('On hand (containers)',cont); put('On hand (units)',units);
+      put('Reorder at',it.reorderAt!=null&&it.reorderAt!==''?Number(it.reorderAt):''); put('Order status',it.orderStatus||'stocked');
+      put('Location',it.location||''); put('Notes',it.notes||'');
+      rows.push(row); assigned.push(newId);
+    });
+  }
+  await sheetsAppendMany(env, token, sheet, rows);
+  await logMovement(env, token, { category:sheet, item_key:'(bulk)', lot:'', item_name:assigned.length+' items', change:'+'+assigned.length, unit:'', new_on_hand:'', reason:'bulk add', experiment:'', by:b.by||'' });
+  return { ok:true, added:assigned.length, ids:assigned };
 }
 
 async function reserve(env, token, b){

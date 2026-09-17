@@ -176,3 +176,12 @@ a{color:var(--teal)}
   .grid2{grid-template-columns:1fr}
   .content{padding:12px}
 }
+
+/* Bulk add grid */
+.bulkwrap{overflow-x:auto;border:1px solid var(--line);border-radius:9px}
+table.bulk{border-collapse:collapse;min-width:100%}
+.bulk th{background:var(--mint);color:var(--teal-d);font-size:12px;font-weight:600;padding:8px 10px;white-space:nowrap;text-align:left;border:1px solid var(--line);position:sticky;top:0}
+.bulk td{border:1px solid var(--line);padding:0}
+.bulk td input{border:none;padding:9px 10px;width:140px;font-size:13px;font-family:inherit;background:transparent}
+.bulk td input:focus{outline:2px solid var(--teal-l);outline-offset:-2px;background:#fff}
+.bulk tbody tr:nth-child(even) td{background:#FAFCFB}

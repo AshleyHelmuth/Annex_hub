@@ -6,6 +6,8 @@ window.INV = (function(){
   var section = 'update';          // current sub-section id
   var search = '';                 // current search text (per section)
   var expanded = {};               // 10X: expanded kit rows (catalog -> true)
+  var updateMode = 'one';          // 'one' | 'bulk' within Update inventory
+  var bulkCat = 'reagents';        // category for the bulk grid
   var elContent = null, elSubnav = null;
 
   var SECTIONS = [
@@ -140,17 +142,26 @@ window.INV = (function(){
   function sourceSheet(src){ return src==='reagents'?'Reagents & Supplies':src==='oligos'?'Oligos':src==='antibodies'?'Antibodies':src; }
 
   function renderUpdate(){
-    var html = pageHead('Update inventory', 'Find an item by catalog # or name to add or use stock — or add something new.', false);
-    html += '<div class="panel">'+
-      '<div class="field"><label>Your initials (saved for the log)</label><input id="whoInput" class="mono" placeholder="e.g. AH" value="'+esc(who())+'" style="max-width:160px"></div>'+
-      '<div class="field"><label>Catalog # or item ID</label><input id="lookupKey" class="mono" placeholder="e.g. 1000698 or R001" autocomplete="off"></div>'+
-      '<div class="field"><label>…or search by name</label><input id="lookupName" placeholder="e.g. Sterile Water, 5\' Chip, HTO" autocomplete="off"><div id="lookupSuggest"></div></div>'+
-      '<div id="lookupResult"></div>'+
-    '</div>';
-    html += '<div id="addNewWrap"></div>';
+    var html = pageHead('Update inventory', 'Find an item to add or use stock, add a new item, or paste in many at once.', false);
+    html += '<div class="panel" style="padding:12px"><div class="field" style="margin:0"><label>Your initials (saved to the log)</label><input id="whoInput" class="mono" placeholder="e.g. AH" value="'+esc(who())+'" style="max-width:160px"></div></div>';
+    html += '<div class="seg" id="upMode" style="margin:0 0 12px">'+
+      '<button data-m="one"'+(updateMode==='one'?' class="on"':'')+'>Find / add one</button>'+
+      '<button data-m="bulk"'+(updateMode==='bulk'?' class="on"':'')+'>Bulk add (paste)</button></div>';
+    html += '<div id="upBody"></div>';
     elContent.innerHTML='<div class="content">'+html+'</div>';
-
     document.getElementById('whoInput').onchange=function(){ setWho(this.value.trim()); };
+    Array.prototype.forEach.call(document.querySelectorAll('#upMode button'),function(b){
+      b.onclick=function(){ updateMode=b.getAttribute('data-m'); renderUpdate(); };
+    });
+    if(updateMode==='bulk') buildBulkGrid(document.getElementById('upBody'));
+    else renderOneItem(document.getElementById('upBody'));
+  }
+  function renderOneItem(host){
+    host.innerHTML='<div class="panel">'+
+      '<div class="field"><label>Catalog # or item ID</label><input id="lookupKey" class="mono" placeholder="e.g. 1000698, R001, or a reagent catalog #" autocomplete="off"></div>'+
+      '<div class="field"><label>…or search by name</label><input id="lookupName" placeholder="e.g. Sterile Water, 5\' Chip, HTO" autocomplete="off"><div id="lookupSuggest"></div></div>'+
+      '<div id="lookupResult"></div></div>'+
+      '<div id="addNewWrap"></div>';
     var key=document.getElementById('lookupKey'), nm=document.getElementById('lookupName');
     key.oninput=function(){ nm.value=''; document.getElementById('lookupSuggest').innerHTML=''; lookupByKey(key.value.trim()); };
     nm.oninput=function(){ key.value=''; document.getElementById('lookupResult').innerHTML=''; suggestByName(nm.value.trim()); };
@@ -164,15 +175,19 @@ window.INV = (function(){
     var hit=allItemsFlat().filter(function(it){ return String(it.key).toLowerCase()===norm || (it.catalog&&String(it.catalog).toLowerCase()===norm); })[0];
     if(hit){ wrap.innerHTML=''; wrap.appendChild(matchCard(hit)); }
     else {
-      wrap.innerHTML='<div class="hint">No item with that catalog #/ID. You can add it as a new item below.</div>';
-      addWrap.appendChild(addNewForm(k));
+      wrap.innerHTML='<div class="hint">No item with that catalog #/ID — fill in the details below to add it as a new item.</div>';
+      addWrap.appendChild(addNewForm({key:k}));
     }
   }
   function suggestByName(q){
     var box=document.getElementById('lookupSuggest'); var wrap=document.getElementById('lookupResult');
     wrap.innerHTML=''; if(!q||q.length<2){ box.innerHTML=''; return; }
     var hits=allItemsFlat().filter(function(it){ return matchText(q,[it.name,it.key,it.catalog,it.category]); }).slice(0,12);
-    if(!hits.length){ box.innerHTML='<div class="suggest"><div class="s-item" style="cursor:default;color:var(--faint)">No matches</div></div>'; return; }
+    if(!hits.length){
+      box.innerHTML='<div class="suggest"><div class="s-item" style="cursor:default">No matches — <span class="rsv-link" id="addByName">add “'+esc(q)+'” as a new item</span></div></div>';
+      var ab=document.getElementById('addByName'); if(ab) ab.onclick=function(){ box.innerHTML=''; var aw=document.getElementById('addNewWrap'); aw.innerHTML=''; aw.appendChild(addNewForm({name:q})); aw.scrollIntoView({block:'start'}); };
+      return;
+    }
     box.innerHTML='<div class="suggest">'+hits.map(function(h,i){
       return '<div class="s-item" data-i="'+i+'">'+esc(h.name||'(unnamed)')+'<span class="key">'+esc(h.key)+' · '+esc(h.category)+'</span></div>';
     }).join('')+'</div>';
@@ -281,32 +296,34 @@ window.INV = (function(){
   }
   function num(id){ var i=document.getElementById(id); return Math.max(0, parseFloat(i&&i.value)||0); }
 
-  function addNewForm(prefillKey){
+  function addNewForm(prefill){
+    prefill = prefill||{};
     var d=document.createElement('div'); d.className='panel';
+    var preCat = prefill.cat||'reagents';
+    function opt(v,lbl){ return '<option value="'+v+'"'+(v===preCat?' selected':'')+'>'+lbl+'</option>'; }
     d.innerHTML='<h2 style="margin-bottom:10px">Add a new item</h2>'+
-      '<div class="field"><label>Category</label><select id="n_cat">'+
-        '<option value="reagents">Reagents &amp; supplies</option>'+
-        '<option value="oligos">Oligos</option>'+
-        '<option value="antibodies">Antibodies</option>'+
-        '<option value="totalseq">TotalSeq / HTO</option>'+
-        '<option value="tenx">10X kit (new catalog #)</option>'+
-      '</select></div>'+
+      '<div class="field"><label>Category *</label><select id="n_cat">'+
+        opt('reagents','Reagents &amp; supplies')+opt('oligos','Oligos')+opt('antibodies','Antibodies')+
+        opt('totalseq','TotalSeq / HTO')+opt('tenx','10X kit (new catalog #)')+
+      '</select><div class="hint">Pick where this item belongs — it decides which sheet it\u2019s added to.</div></div>'+
       '<div id="n_fields"></div>'+
       '<div class="row-actions"><button class="btn btn-primary" id="n_add">Add new item</button></div>';
     setTimeout(function(){
       var catSel=d.querySelector('#n_cat'); var fields=d.querySelector('#n_fields');
-      function draw(){ fields.innerHTML=fieldsFor(catSel.value, prefillKey); }
+      function draw(){ fields.innerHTML=fieldsFor(catSel.value, prefill); }
       catSel.onchange=draw; draw();
       d.querySelector('#n_add').onclick=function(){ submitNew(catSel.value); };
     },0);
     return d;
   }
-  function fieldsFor(cat, key){
-    var kv = key?esc(key):'';
+  function fieldsFor(cat, prefill){
+    prefill = prefill||{};
+    var kv = prefill.key?esc(prefill.key):'';       // catalog # / ID / tube id they searched
+    var nv = prefill.name?esc(prefill.name):'';     // name they searched
     if(cat==='tenx') return ''+
       '<div class="grid2"><div class="field"><label>Catalog #</label><input id="f_key" class="mono" value="'+kv+'"></div>'+
       '<div class="field"><label>Experiment group</label><input id="f_exp" placeholder="e.g. 5\' v3"></div></div>'+
-      '<div class="field"><label>Description</label><input id="f_name"></div>'+
+      '<div class="field"><label>Description</label><input id="f_name" value="'+nv+'"></div>'+
       '<div class="grid2"><div class="field"><label>Storage</label><input id="f_loc" placeholder="e.g. -20C SHM 301B"></div>'+
       '<div class="field"><label>Reserved for (project)</label><input id="f_resv" placeholder="e.g. BCP"></div></div>'+
       '<div class="grid2"><div class="field"><label>Lot #</label><input id="f_lot" class="mono"></div>'+
@@ -328,7 +345,9 @@ window.INV = (function(){
       '<div class="field"><label>Concentration</label><input id="f_conc" placeholder="10uM"></div></div>'+
       '<div class="field"><label>Sequence</label><input id="f_seq" class="mono"></div>';
     return ''+
-      '<div class="field"><label>Item name</label><input id="f_name"></div>'+
+      '<div class="field"><label>Item name *</label><input id="f_name" value="'+nv+'"></div>'+
+      '<div class="grid2"><div class="field"><label>Catalog #</label><input id="f_catalog" class="mono" value="'+kv+'"></div>'+
+      '<div class="field"><label>Vendor</label><input id="f_vendor"></div></div>'+
       '<div class="grid2"><div class="field"><label>Sub-category</label><input id="f_sub" placeholder="'+(cat==='reagents'?'Reagent / Supply':cat==='antibodies'?'Antibody':'Oligo')+'"></div>'+
       '<div class="field"><label>Container</label><input id="f_container" placeholder="bottle / tube / aliquot"></div></div>'+
       extra+
@@ -353,8 +372,12 @@ window.INV = (function(){
       return;
     }
     if(cat==='totalseq'){
-      // append via a small generic: reuse addReagent path won't fit; do a direct reserve-style append through add10x? Use dedicated: we append through adjust? Simplr: not supported server-side yet
-      App.toast('Add TotalSeq tubes directly in the sheet for now', true); return;
+      var box=val('f_box'); if(!box && !val('f_key')) return App.toast('Give a Tube ID or storage box', true);
+      busy(true);
+      API.post({ action:'addTotalseq', tubeId:val('f_key'), storageBox:box, type:val('f_type')||'HTO',
+        version:val('f_ver'), catalog:val('f_cat'), lot:val('f_lot'), hashtag:val('f_ht'),
+        remaining:val('f_qty'), by:by }).then(afterWrite('Added TotalSeq tube'));
+      return;
     }
     var sheet = cat==='oligos'?'Oligos':cat==='antibodies'?'Antibodies':'Reagents & Supplies';
     var prefix = cat==='oligos'?'OL':cat==='antibodies'?'AB':'R';
@@ -362,11 +385,101 @@ window.INV = (function(){
     busy(true);
     API.post({ action:'addReagent', sheet:sheet, idPrefix:prefix, name:name,
       subcategory:val('f_sub')|| (cat==='antibodies'?'Antibody':cat==='oligos'?'Oligo':'Reagent'),
+      catalog:val('f_catalog'), vendor:val('f_vendor'),
       type:val('f_type'), concentration:val('f_conc'), sequence:val('f_seq'),
       container:val('f_container'), packSize:+val('f_pack')||1, unit:val('f_unit'),
       onHandContainers:+val('f_cont')||0, onHandUnits:(val('f_units')!==''?+val('f_units'):null), reorderAt:val('f_reorder')?+val('f_reorder'):null,
       location:val('f_loc'), orderStatus:val('f_status')||'stocked', by:by })
       .then(afterWrite('Added item'));
+  }
+
+  /* ---------- BULK ADD (paste-in grid) ---------- */
+  function bulkColumns(cat){
+    if(cat==='totalseq') return [
+      {k:'tubeId',label:'Tube ID (blank = auto)'},{k:'storageBox',label:'Storage box *'},{k:'type',label:'Type'},
+      {k:'catalog',label:'Catalog #'},{k:'lot',label:'Lot #'},{k:'version',label:'Version'},
+      {k:'hashtag',label:'Hashtag #'},{k:'remaining',label:'Remaining'},{k:'reservedFor',label:'Reserved for'} ];
+    var base=[{k:'name',label:'Item name *'}];
+    if(cat==='oligos') base=base.concat([{k:'type',label:'Type'},{k:'concentration',label:'Concentration'},{k:'sequence',label:'Sequence'}]);
+    else base=base.concat([{k:'catalog',label:'Catalog #'},{k:'vendor',label:'Vendor'}]);
+    return base.concat([
+      {k:'subcategory',label:'Sub-category'},{k:'container',label:'Container'},{k:'packSize',label:'Pack size'},
+      {k:'unit',label:'Unit'},{k:'onHandContainers',label:'On hand (cont)'},{k:'onHandUnits',label:'On hand (units)'},
+      {k:'reorderAt',label:'Reorder at'},{k:'location',label:'Location'},{k:'notes',label:'Notes'} ]);
+  }
+  function buildBulkGrid(host){
+    var cols=bulkColumns(bulkCat); var START_ROWS=8;
+    var html='<div class="panel">'+
+      '<div class="field" style="max-width:280px"><label>Category *</label><select id="bulkCat">'+
+        '<option value="reagents"'+(bulkCat==='reagents'?' selected':'')+'>Reagents &amp; supplies</option>'+
+        '<option value="oligos"'+(bulkCat==='oligos'?' selected':'')+'>Oligos</option>'+
+        '<option value="antibodies"'+(bulkCat==='antibodies'?' selected':'')+'>Antibodies</option>'+
+        '<option value="totalseq"'+(bulkCat==='totalseq'?' selected':'')+'>TotalSeq / HTO</option>'+
+      '</select></div>'+
+      '<div class="hint" style="margin:-4px 0 10px">Type into cells, or copy a block from Excel/Sheets and paste into the first cell — rows are added automatically. Item IDs are assigned on save. * required.</div>'+
+      '<div class="bulkwrap"><table class="bulk"><thead><tr>'+cols.map(function(c){return '<th>'+esc(c.label)+'</th>';}).join('')+'</tr></thead>'+
+      '<tbody id="bulkBody">'+bulkRows(cols,START_ROWS)+'</tbody></table></div>'+
+      '<div class="row-actions" style="margin-top:12px">'+
+        '<button class="btn btn-sm" id="bulkAddRows">+ 5 rows</button>'+
+        '<button class="btn btn-sm" id="bulkClear">Clear</button>'+
+        '<span style="flex:1"></span>'+
+        '<button class="btn btn-primary" id="bulkSave">Add all</button>'+
+      '</div></div>';
+    host.innerHTML=html;
+    var body=document.getElementById('bulkBody');
+    document.getElementById('bulkCat').onchange=function(){ bulkCat=this.value; buildBulkGrid(host); };
+    document.getElementById('bulkAddRows').onclick=function(){ body.insertAdjacentHTML('beforeend', bulkRows(cols,5,body.querySelectorAll('tr').length)); wirePaste(body,cols); };
+    document.getElementById('bulkClear').onclick=function(){ buildBulkGrid(host); };
+    document.getElementById('bulkSave').onclick=function(){ bulkSave(cols); };
+    wirePaste(body,cols);
+  }
+  function bulkRows(cols, n, startIndex){
+    startIndex=startIndex||0; var out='';
+    for(var r=0;r<n;r++){ var ri=startIndex+r; out+='<tr>'+cols.map(function(c,ci){
+      return '<td><input class="gcell" data-r="'+ri+'" data-c="'+ci+'" autocomplete="off"></td>';
+    }).join('')+'</tr>'; }
+    return out;
+  }
+  function wirePaste(body, cols){
+    Array.prototype.forEach.call(body.querySelectorAll('input.gcell'), function(inp){
+      if(inp._wired) return; inp._wired=true;
+      inp.addEventListener('paste', function(e){
+        var text=(e.clipboardData||window.clipboardData).getData('text');
+        if(!text || (text.indexOf('\t')<0 && text.indexOf('\n')<0)) return; // single value: let default happen
+        e.preventDefault();
+        var startR=+inp.getAttribute('data-r'), startC=+inp.getAttribute('data-c');
+        var lines=text.replace(/\r/g,'').split('\n'); if(lines.length && lines[lines.length-1]==='') lines.pop();
+        var need=startR+lines.length;
+        while(body.querySelectorAll('tr').length < need){ body.insertAdjacentHTML('beforeend', bulkRows(cols,1,body.querySelectorAll('tr').length)); }
+        wirePaste(body,cols); // wire any new cells
+        lines.forEach(function(line,ri){
+          line.split('\t').forEach(function(valCell,ci){
+            var cell=body.querySelector('input[data-r="'+(startR+ri)+'"][data-c="'+(startC+ci)+'"]');
+            if(cell) cell.value=valCell.trim();
+          });
+        });
+      });
+    });
+  }
+  function bulkSave(cols){
+    var body=document.getElementById('bulkBody'); var rows=[];
+    Array.prototype.forEach.call(body.querySelectorAll('tr'), function(tr){
+      var obj={}, any=false;
+      Array.prototype.forEach.call(tr.querySelectorAll('input.gcell'), function(inp,ci){
+        var v=inp.value.trim(); if(v){ any=true; obj[cols[ci].k]=v; }
+      });
+      if(any) rows.push(obj);
+    });
+    if(!rows.length) return App.toast('Nothing to add — fill in some rows', true);
+    // required-field check
+    var reqKey = bulkCat==='totalseq' ? 'storageBox' : 'name';
+    var missing = rows.filter(function(o){ return !(o[reqKey]|| (bulkCat==='totalseq' && o.tubeId)); }).length;
+    if(missing) return App.toast(missing+' row(s) missing the required '+(bulkCat==='totalseq'?'storage box or tube ID':'item name'), true);
+    busy(true);
+    API.post({ action:'bulkAdd', category:bulkCat, rows:rows, by:who() }).then(function(d){
+      if(d&&d.ok){ App.toast('Added '+d.added+' item'+(d.added===1?'':'s')); App.reload(); }
+      else { busy(false); App.toast('Error: '+((d&&d.error)||'bulk add failed'), true); }
+    });
   }
 
   /* ---------- 10X REAGENTS page ---------- */
