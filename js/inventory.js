@@ -403,9 +403,16 @@ window.INV = (function(){
     if(cat==='oligos') base=base.concat([{k:'type',label:'Type'},{k:'concentration',label:'Concentration'},{k:'sequence',label:'Sequence'}]);
     else base=base.concat([{k:'catalog',label:'Catalog #'},{k:'vendor',label:'Vendor'}]);
     return base.concat([
-      {k:'subcategory',label:'Sub-category'},{k:'container',label:'Container'},{k:'packSize',label:'Pack size'},
+      {k:'subcategory',label:'Sub-category',opts:subcatOptions(cat)},{k:'container',label:'Container'},{k:'packSize',label:'Pack size'},
       {k:'unit',label:'Unit'},{k:'onHandContainers',label:'On hand (cont)'},{k:'onHandUnits',label:'On hand (units)'},
       {k:'reorderAt',label:'Reorder at'},{k:'location',label:'Location'},{k:'notes',label:'Notes'} ]);
+  }
+  function subcatOptions(cat){
+    var src = cat==='oligos'?'oligos':cat==='antibodies'?'antibodies':'reagents';
+    var set={}; (data[src]||[]).forEach(function(x){ var s=(x.subcategory||'').trim(); if(s) set[s]=1; });
+    var list=Object.keys(set).sort();
+    if(!list.length) list = cat==='oligos'?['Oligo']:cat==='antibodies'?['Antibody']:['Reagent','Supply'];
+    return list;
   }
   function buildBulkGrid(host){
     var cols=bulkColumns(bulkCat); var START_ROWS=8;
@@ -436,12 +443,14 @@ window.INV = (function(){
   function bulkRows(cols, n, startIndex){
     startIndex=startIndex||0; var out='';
     for(var r=0;r<n;r++){ var ri=startIndex+r; out+='<tr>'+cols.map(function(c,ci){
+      if(c.opts){ return '<td><select class="gcell" data-r="'+ri+'" data-c="'+ci+'"><option value=""></option>'+
+        c.opts.map(function(o){return '<option value="'+esc(o)+'">'+esc(o)+'</option>';}).join('')+'</select></td>'; }
       return '<td><input class="gcell" data-r="'+ri+'" data-c="'+ci+'" autocomplete="off"></td>';
     }).join('')+'</tr>'; }
     return out;
   }
   function wirePaste(body, cols){
-    Array.prototype.forEach.call(body.querySelectorAll('input.gcell'), function(inp){
+    Array.prototype.forEach.call(body.querySelectorAll('.gcell'), function(inp){
       if(inp._wired) return; inp._wired=true;
       inp.addEventListener('paste', function(e){
         var text=(e.clipboardData||window.clipboardData).getData('text');
@@ -454,8 +463,8 @@ window.INV = (function(){
         wirePaste(body,cols); // wire any new cells
         lines.forEach(function(line,ri){
           line.split('\t').forEach(function(valCell,ci){
-            var cell=body.querySelector('input[data-r="'+(startR+ri)+'"][data-c="'+(startC+ci)+'"]');
-            if(cell) cell.value=valCell.trim();
+            var cell=body.querySelector('.gcell[data-r="'+(startR+ri)+'"][data-c="'+(startC+ci)+'"]');
+            if(cell) cell.value=valCell.trim(); // for <select>, only takes if the option exists
           });
         });
       });
@@ -465,8 +474,8 @@ window.INV = (function(){
     var body=document.getElementById('bulkBody'); var rows=[];
     Array.prototype.forEach.call(body.querySelectorAll('tr'), function(tr){
       var obj={}, any=false;
-      Array.prototype.forEach.call(tr.querySelectorAll('input.gcell'), function(inp,ci){
-        var v=inp.value.trim(); if(v){ any=true; obj[cols[ci].k]=v; }
+      Array.prototype.forEach.call(tr.querySelectorAll('.gcell'), function(inp,ci){
+        var v=(inp.value||'').trim(); if(v){ any=true; obj[cols[ci].k]=v; }
       });
       if(any) rows.push(obj);
     });
@@ -698,67 +707,117 @@ window.INV = (function(){
 
   /* ---------- RESERVATIONS page ---------- */
   function renderReservations(){
-    var active=(data.reservations||[]).filter(function(r){return r.status==='active';});
-    var html=pageHead('Reservations', 'Active reservations reduce the available amount everywhere. Release one to free it up.', false);
+    var all=(data.reservations||[]).filter(function(r){return r.status==='active'||r.status==='fulfilled';});
+    var html=pageHead('Reservations', 'Grouped by experiment. Expand one to adjust amounts or remove the reserved stock from inventory.', false);
     html+='<div class="panel"><div class="row-actions"><button class="btn btn-primary" id="newResBtn">＋ New reservation</button></div></div>';
-    // group by category
-    var byCat={}; active.forEach(function(r){ (byCat[r.category]=byCat[r.category]||[]).push(r); });
-    var order=Object.keys(byCat).sort();
-    if(!active.length) html+='<div class="empty">No active reservations. New reservations you make here — or that the planner creates — will show up across all the category pages.</div>';
-    order.forEach(function(cat){
-      html+='<details class="group" open><summary><span class="caret">▸</span><span class="g-title">'+esc(cat)+'</span><span class="g-meta">'+byCat[cat].length+'</span></summary><div class="rows" style="padding:6px 14px">';
-      byCat[cat].forEach(function(r){
-        html+='<div class="res-item"><div class="r-main"><div><b>'+esc(r.itemName||r.itemKey)+'</b> <span class="key" style="font-family:var(--mono);color:var(--faint);font-size:12px">'+esc(r.itemKey)+(r.lot?(' · lot '+esc(r.lot)):'')+'</span></div>'+
-          '<div class="r-for">'+esc(r.experiment||r.project||'(unlabeled)')+' · '+esc(r.date||'')+(r.by?(' · '+esc(r.by)):'')+'</div></div>'+
-          '<div style="display:flex;align-items:center;gap:10px"><span class="r-qty">'+fmt(r.qty)+' '+esc(r.unit||'')+'</span>'+
-          '<button class="btn btn-sm btn-danger" data-release="'+esc(r.id)+'">Release</button></div></div>';
+    // group by experiment (fall back to project / unlabeled)
+    var byExp={};
+    all.forEach(function(r){ var e=(r.experiment||r.project||'(unlabeled)'); (byExp[e]=byExp[e]||[]).push(r); });
+    // only surface experiments that still have at least one active reservation
+    var order=Object.keys(byExp).filter(function(e){ return byExp[e].some(function(r){return r.status==='active';}); }).sort();
+    if(!order.length) html+='<div class="empty">No active reservations. New reservations you make here — or that the planner creates — show up across every category page and reduce the available amount.</div>';
+    order.forEach(function(exp){
+      var list=byExp[exp]; var act=list.filter(function(r){return r.status==='active';});
+      var proj=(act[0]&&act[0].project)||'';
+      html+='<details class="group"><summary><span class="caret">▸</span>'+
+        '<span class="g-title">'+esc(exp)+'</span>'+
+        '<span class="g-meta">'+act.length+' item'+(act.length===1?'':'s')+' reserved'+(proj?(' · '+esc(proj)):'')+'</span></summary>'+
+        '<div class="rows" style="padding:6px 14px">';
+      list.forEach(function(r){
+        var done = r.status==='fulfilled';
+        html+='<div class="res-item" style="'+(done?'opacity:.6':'')+'">'+
+          '<div class="r-main"><div><b>'+esc(r.itemName||r.itemKey)+'</b> <span class="key" style="font-family:var(--mono);color:var(--faint);font-size:12px">'+esc(r.itemKey)+(r.lot?(' · lot '+esc(r.lot)):'')+'</span></div>'+
+          '<div class="r-for">'+esc(r.category)+' · '+esc(r.date||'')+(r.by?(' · '+esc(r.by)):'')+'</div>'+
+          (done?'<div class="r-for" style="color:var(--green);font-weight:600">✓ complete — removed from inventory</div>':'')+
+          '</div>'+
+          (done
+            ? '<div><span class="r-qty">'+fmt(r.qty)+' '+esc(r.unit||'')+'</span></div>'
+            : '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">'+
+                '<div class="stepper"><button data-rq="'+esc(r.id)+'|-1">−</button><input id="rq_'+esc(r.id)+'" value="'+fmt(r.qty)+'" inputmode="decimal" style="width:56px"><button data-rq="'+esc(r.id)+'|1">＋</button></div>'+
+                '<span style="font-size:12px;color:var(--muted)">'+esc(r.unit||'')+'</span>'+
+                '<button class="btn btn-sm" data-rsave="'+esc(r.id)+'">Save</button>'+
+                '<button class="btn btn-sm btn-primary" data-rfulfill="'+esc(r.id)+'">Remove from inventory</button>'+
+                '<button class="btn btn-sm btn-danger" data-release="'+esc(r.id)+'">Cancel</button>'+
+              '</div>')+
+        '</div>';
       });
       html+='</div></details>';
     });
     elContent.innerHTML='<div class="content">'+html+'</div>';
     document.getElementById('newResBtn').onclick=function(){ openReserveForm({}); };
+    Array.prototype.forEach.call(elContent.querySelectorAll('[data-rq]'),function(b){
+      b.onclick=function(){ var p=b.getAttribute('data-rq').split('|'); var i=document.getElementById('rq_'+p[0]); var v=parseFloat(i.value)||0; v+=parseFloat(p[1]); if(v<0)v=0; i.value=Math.round(v*100)/100; };
+    });
+    Array.prototype.forEach.call(elContent.querySelectorAll('[data-rsave]'),function(b){
+      b.onclick=function(){ var id=b.getAttribute('data-rsave'); var v=parseFloat(document.getElementById('rq_'+id).value)||0;
+        busy(true); API.post({action:'updateReservation', reservationId:id, qty:v, by:who()}).then(afterWrite('Reservation updated')); };
+    });
+    Array.prototype.forEach.call(elContent.querySelectorAll('[data-rfulfill]'),function(b){
+      b.onclick=function(){ var id=b.getAttribute('data-rfulfill');
+        busy(true); API.post({action:'fulfillReservation', reservationId:id, by:who()}).then(afterWrite('Removed from inventory — reservation complete')); };
+    });
     Array.prototype.forEach.call(elContent.querySelectorAll('[data-release]'),function(b){ b.onclick=function(){ releaseRes(b.getAttribute('data-release')); };});
   }
 
+  // ---- Multi-item reservation form ----
   function openReserveForm(pre){
     pre=pre||{};
-    var items=allItemsFlat();
-    var html='';
-    if(!pre.itemKey){
-      html+='<div class="field"><label>Item</label><input id="rf_search" placeholder="Search name or catalog #…" autocomplete="off"><div id="rf_suggest"></div></div>';
-    } else {
-      html+='<div class="match-card"><div class="mc-name">'+esc(pre.name||pre.itemKey)+'</div><div class="r-for">'+esc(pre.category)+' · '+esc(pre.itemKey)+(pre.lot?(' · lot '+esc(pre.lot)):'')+'</div></div>';
-    }
-    html+=stepperHTML('rf_qty',1,pre.unit||'units')+
-      '<div class="grid2"><div class="field"><label>Experiment</label><input id="rf_exp" placeholder="e.g. BCP batch 13"></div>'+
-      '<div class="field"><label>Project</label><input id="rf_proj" placeholder="e.g. BCP"></div></div>'+
+    var html=''+
+      '<div class="grid2"><div class="field"><label>Experiment</label><input id="rf_exp" placeholder="e.g. BCP batch 13" value="'+esc(pre.experiment||'')+'"></div>'+
+      '<div class="field"><label>Project</label><input id="rf_proj" placeholder="e.g. BCP" value="'+esc(pre.project||'')+'"></div></div>'+
+      '<div class="field"><label>Items to reserve</label><div id="resRows"></div>'+
+        '<button class="btn btn-sm" id="rf_addrow" style="margin-top:6px">＋ Add item</button></div>'+
       '<div class="field"><label>Notes (optional)</label><input id="rf_notes"></div>'+
-      '<div class="row-actions"><button class="btn btn-primary" id="rf_go">Reserve</button></div>';
+      '<div class="row-actions"><button class="btn btn-primary" id="rf_go">Reserve all</button></div>';
     App.drawer('New reservation', html);
-    wireStepper('rf_qty');
-    var chosen = pre.itemKey? {category:pre.category, itemKey:pre.itemKey, itemName:pre.name, unit:pre.unit, lot:pre.lot} : null;
-    if(!pre.itemKey){
-      var si=document.getElementById('rf_search'); var box=document.getElementById('rf_suggest');
-      si.oninput=function(){ var q=si.value.trim(); if(q.length<2){box.innerHTML='';return;}
-        var hits=items.filter(function(it){return matchText(q,[it.name,it.key,it.catalog,it.category]);}).slice(0,10);
-        box.innerHTML='<div class="suggest">'+hits.map(function(h,i){return '<div class="s-item" data-i="'+i+'">'+esc(h.name||'(unnamed)')+'<span class="key">'+esc(h.key)+' · '+esc(h.category)+'</span></div>';}).join('')+'</div>';
-        Array.prototype.forEach.call(box.querySelectorAll('[data-i]'),function(el){ el.onclick=function(){ var h=hits[+el.getAttribute('data-i')];
-          chosen={category:h.category, itemKey:h.key, itemName:h.name, unit:(h.kind==='tenx'?'rxns':(h.ref.unit||'units'))};
-          si.value=h.name; box.innerHTML='<div class="hint">Selected: '+esc(h.key)+' · '+esc(h.category)+'</div>'; };});
+    var rowsHost=document.getElementById('resRows'); var seq=0; var picked={};
+    var items=allItemsFlat();
+    function unitLabel(it){ return it.kind==='tenx'?'rxns':it.kind==='totalseq'?'uL':(it.ref.unit||'unit'); }
+    function addRow(preItem){
+      var id='r'+(seq++);
+      var row=document.createElement('div'); row.className='resrow'; row.setAttribute('data-row',id);
+      row.innerHTML='<div class="resrow-item"><input class="ritem" placeholder="Search name or catalog #…" autocomplete="off"><div class="rsuggest"></div></div>'+
+        '<input class="rqty" value="1" inputmode="decimal">'+
+        '<select class="runit"><option value="unit">unit</option></select>'+
+        '<button class="rrm" title="Remove row">×</button>';
+      rowsHost.appendChild(row);
+      var si=row.querySelector('.ritem'), box=row.querySelector('.rsuggest'), usel=row.querySelector('.runit');
+      function setItem(it){ picked[id]=it; si.value=it.name||it.key; box.innerHTML='';
+        var opts='<option value="unit">'+esc(unitLabel(it))+'</option>';
+        if(it.kind==='reagent' && it.ref.container) opts+='<option value="cont">'+esc(it.ref.container)+'</option>';
+        usel.innerHTML=opts;
+      }
+      si.oninput=function(){ picked[id]=null; var q=si.value.trim(); if(q.length<2){box.innerHTML='';return;}
+        var hits=items.filter(function(it){return matchText(q,[it.name,it.key,it.catalog,it.category]);}).slice(0,8);
+        box.innerHTML='<div class="suggest">'+(hits.length?hits.map(function(h,i){return '<div class="s-item" data-i="'+i+'">'+esc(h.name||'(unnamed)')+'<span class="key">'+esc(h.key)+' · '+esc(h.category)+'</span></div>';}).join(''):'<div class="s-item" style="cursor:default;color:var(--faint)">No matches</div>')+'</div>';
+        Array.prototype.forEach.call(box.querySelectorAll('[data-i]'),function(el){ el.onclick=function(){ setItem(hits[+el.getAttribute('data-i')]); };});
       };
+      row.querySelector('.rrm').onclick=function(){ delete picked[id]; row.parentNode.removeChild(row); };
+      if(preItem) setItem(preItem);
     }
+    // seed rows
+    if(pre.itemKey){ var it0=items.filter(function(x){return x.category===pre.category && String(x.key)===String(pre.itemKey);})[0]; if(it0&&pre.lot) it0._lot=pre.lot; addRow(it0); }
+    else { addRow(); addRow(); }
+    document.getElementById('rf_addrow').onclick=function(){ addRow(); };
     document.getElementById('rf_go').onclick=function(){
-      if(!chosen) return App.toast('Pick an item first', true);
-      var qty=num('rf_qty'); if(qty<=0) return App.toast('Enter a quantity', true);
+      var exp=val('rf_exp'), proj=val('rf_proj'), notes=val('rf_notes');
+      var out=[];
+      Array.prototype.forEach.call(rowsHost.querySelectorAll('.resrow'),function(row){
+        var id=row.getAttribute('data-row'); var it=picked[id]; if(!it) return;
+        var qty=parseFloat(row.querySelector('.rqty').value)||0; if(qty<=0) return;
+        var mode=row.querySelector('.runit').value; var unit=unitLabel(it); var note=notes;
+        if(mode==='cont'){ if(it.ref&&it.ref.packConvertible){ qty=qty*(it.ref.packSize||1); note=(note?note+'; ':'')+'reserved by '+(it.ref.container||'container'); } else { unit=(it.ref&&it.ref.container)||'container'; } }
+        out.push({ category:it.category, itemKey:it.key, lot:it._lot||'', itemName:it.name, qty:qty, unit:unit, notes:note });
+      });
+      if(!out.length) return App.toast('Add at least one item with a quantity', true);
       App.closeDrawer(); busy(true);
-      API.post({ action:'reserve', category:chosen.category, itemKey:chosen.itemKey, lot:chosen.lot||'',
-        itemName:chosen.itemName||'', qty:qty, unit:chosen.unit||'', experiment:val('rf_exp'), project:val('rf_proj'),
-        notes:val('rf_notes'), by:who() }).then(afterWrite('Reserved'));
+      API.post({ action:'reserveBulk', items:out, experiment:exp, project:proj, notes:notes, by:who() })
+        .then(function(d){ if(d&&d.ok){ App.toast('Reserved '+d.count+' item'+(d.count===1?'':'s')); App.reload(); } else { busy(false); App.toast('Error: '+((d&&d.error)||'reserve failed'), true); } });
     };
   }
   function releaseRes(id){
     busy(true);
-    API.post({ action:'releaseReservation', reservationId:id, by:who() }).then(afterWrite('Reservation released'));
+    API.post({ action:'releaseReservation', reservationId:id, by:who() }).then(afterWrite('Reservation cancelled'));
   }
 
   /* ---------- write helpers ---------- */

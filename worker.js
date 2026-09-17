@@ -243,6 +243,9 @@ async function postInventory(request, env){
     case 'addTotalseq':     return addTotalseq(env, token, body);
     case 'bulkAdd':         return bulkAdd(env, token, body);
     case 'reserve':         return reserve(env, token, body);
+    case 'reserveBulk':     return reserveBulk(env, token, body);
+    case 'updateReservation': return updateReservation(env, token, body);
+    case 'fulfillReservation': return fulfillReservation(env, token, body);
     case 'releaseReservation': return releaseReservation(env, token, body);
     default: return { ok:false, error:'unknown_action:'+action };
   }
@@ -452,6 +455,61 @@ async function releaseReservation(env, token, b){
   if(idx<0) return {ok:false,error:'reservation_not_found'};
   await sheetsUpdate(env, token, "'"+SHEETS.reservations+"'!"+colLetter(h['status'])+(idx+1), ['released']);
   return { ok:true };
+}
+
+// reserve many items at once (one experiment/project), single append
+async function reserveBulk(env, token, b){
+  const items=Array.isArray(b.items)?b.items:[];
+  if(!items.length) return { ok:false, error:'no_items' };
+  const v=await readTab(env,token,SHEETS.reservations); const h=hindex(v);
+  let maxN=0; for(let i=1;i<v.length;i++){ const id=(v[i]&&v[i][0]||'').toString(); const m=id.match(/RSV-?0*(\d+)/i); if(m){ const n=parseInt(m[1],10); if(n>maxN)maxN=n; } }
+  const headerLen=Math.max((v[0]||[]).length,13); const rows=[]; const ids=[];
+  items.forEach((it,k)=>{
+    const id='RSV-'+String(maxN+1+k).padStart(4,'0'); ids.push(id);
+    const row=new Array(headerLen).fill('');
+    const put=(name,val)=>{ if(h[name]!=null) row[h[name]]=val; };
+    put('reservation_id',id); put('category',it.category||''); put('item_key',cleanId(it.itemKey));
+    put('lot',it.lot||''); put('item_name',it.itemName||''); put('qty',Number(it.qty)||0); put('unit',it.unit||'');
+    put('experiment',b.experiment||''); put('project',b.project||''); put('date_created',todayISO());
+    put('created_by',b.by||''); put('status','active'); put('notes',it.notes||b.notes||'');
+    rows.push(row);
+  });
+  await sheetsAppendMany(env, token, SHEETS.reservations, rows);
+  return { ok:true, reservationIds:ids, count:ids.length };
+}
+
+async function updateReservation(env, token, b){
+  const v=await readTab(env,token,SHEETS.reservations); const h=hindex(v);
+  const idx=findRow(v, h['reservation_id']||0, b.reservationId);
+  if(idx<0) return {ok:false,error:'reservation_not_found'};
+  if(b.qty!=null) await sheetsUpdate(env, token, "'"+SHEETS.reservations+"'!"+colLetter(h['qty'])+(idx+1), [Number(b.qty)||0]);
+  if(b.experiment!=null && h['experiment']!=null) await sheetsUpdate(env, token, "'"+SHEETS.reservations+"'!"+colLetter(h['experiment'])+(idx+1), [b.experiment]);
+  return { ok:true };
+}
+
+// fulfil a reservation: actually remove the reserved qty from stock, then mark it complete
+async function fulfillReservation(env, token, b){
+  const v=await readTab(env,token,SHEETS.reservations); const h=hindex(v);
+  const idx=findRow(v, h['reservation_id']||0, b.reservationId);
+  if(idx<0) return {ok:false,error:'reservation_not_found'};
+  const r=v[idx];
+  const cat=(r[h['category']]||'').toString();
+  const key=cleanId(r[h['item_key']]);
+  const lot=(r[h['lot']]||'').toString();
+  const qty=cleanNum(r[h['qty']])||0;
+  const exp=(r[h['experiment']]||'').toString();
+  // deduct from the right sheet
+  if(cat==='10X Kits' || cat==='10X Kits_All'){
+    await adjust10x(env, token, { itemKey:key, lot:lot, mode:'remove', amount:qty, reason:'reservation fulfilled', experiment:exp, by:b.by||'' });
+  } else if(cat==='Totalseq Cocktails + HTOs' || cat==='Totalseq'){
+    await adjustTotalseq(env, token, { itemKey:key, mode:'remove', amount:qty, reason:'reservation fulfilled', experiment:exp, by:b.by||'' });
+  } else if(cat==='Reagents & Supplies' || cat==='Oligos' || cat==='Antibodies'){
+    await adjustReagent(env, token, { sheet:cat, itemKey:key, unitDelta:-qty, containerDelta:0, reason:'reservation fulfilled', experiment:exp, by:b.by||'' });
+  } else {
+    return { ok:false, error:'unknown_category:'+cat };
+  }
+  await sheetsUpdate(env, token, "'"+SHEETS.reservations+"'!"+colLetter(h['status'])+(idx+1), ['fulfilled']);
+  return { ok:true, fulfilled:qty };
 }
 
 async function logMovement(env, token, m){
