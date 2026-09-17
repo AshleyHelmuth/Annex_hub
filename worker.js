@@ -171,16 +171,19 @@ async function getInventory(env){
   function reagentTab(sheet){
     const v=val(sheet); const h=hindex(v); const out=[];
     for(let i=1;i<v.length;i++){ const r=v[i]; if(!r||!r[0]) continue;
+      const packRaw=(r[h['Pack size']]==null?'':String(r[h['Pack size']]).trim());
+      const packConvertible=/^[0-9]*\.?[0-9]+$/.test(packRaw);
       const pack=cleanNum(r[h['Pack size']])||1;
       let units=cleanNum(r[h['On hand (units)']]); const cont=cleanNum(r[h['On hand (containers)']]);
-      if(units==null && cont!=null) units=cont*pack;
+      // units and containers are independent; only fall back for display when one is truly absent
+      if(units==null && cont!=null && packConvertible) units=cont*pack;
       out.push({
         itemId:cleanId(r[0]), name:(r[h['Item']]||'').toString(), subcategory:(r[h['Category']]||'').toString(),
         type:(h['Type']!=null? (r[h['Type']]||'').toString():''),
         concentration:(h['Concentration']!=null?(r[h['Concentration']]||'').toString():''),
         catalog:(h['Catalog #']!=null?cleanId(r[h['Catalog #']]):''), vendor:(h['Vendor']!=null?(r[h['Vendor']]||'').toString():''),
-        container:(r[h['Container']]||'').toString(), packSize:pack, unit:(r[h['Unit']]||'').toString(),
-        onHandUnits:units, onHandContainers:(cont!=null?cont:(units!=null&&pack?units/pack:null)),
+        container:(r[h['Container']]||'').toString(), packSize:pack, packConvertible:packConvertible, unit:(r[h['Unit']]||'').toString(),
+        onHandUnits:units, onHandContainers:(cont!=null?cont:null),
         reorderAt:cleanNum(r[h['Reorder at']]), orderStatus:(r[h['Order status']]||'').toString(),
         location:(r[h['Location']]||'').toString(), notes:(r[h['Notes']]||'').toString(), row:i+1
       });
@@ -245,23 +248,23 @@ function findRow(values, keyCol, key){
   return -1;
 }
 
-// adjust a reagent/oligo/antibody row: mode add|remove|set on units; recompute containers
+// adjust a reagent/oligo/antibody row: apply independent unit and container deltas
 async function adjustReagent(env, token, b){
   const sheet=b.sheet; const v=await readTab(env,token,sheet); const h=hindex(v);
   const idx=findRow(v, 0, b.itemKey); if(idx<0) return {ok:false,error:'item_not_found'};
   const r=v[idx]; const row=idx+1;
-  const pack=cleanNum(r[h['Pack size']])||1;
-  let units=cleanNum(r[h['On hand (units)']]); if(units==null){ const c=cleanNum(r[h['On hand (containers)']]); units=(c!=null?c*pack:0); }
-  const delta=Number(b.amount)||0;
-  if(b.mode==='add') units+=delta; else if(b.mode==='remove') units-=delta; else if(b.mode==='set') units=delta;
-  if(units<0) units=0;
-  const containers = pack? +(units/pack).toFixed(4) : units;
+  let units=cleanNum(r[h['On hand (units)']]); if(units==null) units=0;
+  let cont=cleanNum(r[h['On hand (containers)']]); if(cont==null) cont=0;
+  const ud=Number(b.unitDelta)||0, cd=Number(b.containerDelta)||0;
+  units = Math.max(0, units+ud);
+  cont  = Math.max(0, cont+cd);
   await sheetsUpdate(env, token, "'"+sheet+"'!"+colLetter(h['On hand (units)'])+row, [units]);
-  if(h['On hand (containers)']!=null) await sheetsUpdate(env, token, "'"+sheet+"'!"+colLetter(h['On hand (containers)'])+row, [containers]);
+  if(h['On hand (containers)']!=null) await sheetsUpdate(env, token, "'"+sheet+"'!"+colLetter(h['On hand (containers)'])+row, [cont]);
+  const parts=[]; if(ud) parts.push((ud<0?'':'+')+ud+' '+(r[h['Unit']]||'u')); if(cd) parts.push((cd<0?'':'+')+cd+' '+(r[h['Container']]||'cont'));
   await logMovement(env, token, { category:sheet, item_key:b.itemKey, lot:'', item_name:(r[h['Item']]||''),
-    change:(b.mode==='set'?('set='+units):((b.mode==='remove'?'-':'+')+delta)), unit:(r[h['Unit']]||''),
-    new_on_hand:units, reason:b.reason||b.mode, experiment:b.experiment||'', by:b.by||'' });
-  return { ok:true, onHandUnits:units, onHandContainers:containers };
+    change:parts.join(', '), unit:(r[h['Unit']]||''),
+    new_on_hand:units, reason:b.reason||'', experiment:b.experiment||'', by:b.by||'' });
+  return { ok:true, onHandUnits:units, onHandContainers:cont };
 }
 
 async function addReagent(env, token, b){

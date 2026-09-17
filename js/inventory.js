@@ -235,27 +235,25 @@ window.INV = (function(){
       return;
     }
     if(it.kind==='reagent'){
+      var pack=it.ref.packSize||1; var unit=it.ref.unit||'unit'; var contL=it.ref.container||'container';
       host.innerHTML=''+
-        '<div class="seg"><button class="on" data-m="use">Take out units</button><button data-m="add">Add container(s)</button></div>'+
-        '<div id="mcBody"></div>';
-      var body=host.querySelector('#mcBody'); var pack=it.ref.packSize||1; var unit=it.ref.unit||'units';
-      function useUI(){ body.innerHTML=stepperHTML('r_amt',1,unit)+
+        stepperHTML('r_amt',1)+
+        '<div class="field"><label>Remove/add as</label>'+
+          '<div class="seg" id="r_mode"><button class="on" data-u="unit">'+esc(unit)+'</button><button data-u="cont">'+esc(contL)+'</button></div>'+
+          '<div class="hint" id="r_hint"></div></div>'+
         '<div class="field"><label>For experiment (optional)</label><input id="r_exp" placeholder="e.g. ASAP batch"></div>'+
-        '<div class="row-actions"><button class="btn btn-primary" id="r_go">Remove '+esc(unit)+'</button></div>';
-        wireStepper('r_amt');
-        body.querySelector('#r_go').onclick=function(){ adjustReagent(it.src, it.key, 'remove', num('r_amt'), body.querySelector('#r_exp').value); };
+        '<div class="row-actions"><button class="btn" id="r_take">Take out</button><button class="btn btn-primary" id="r_add">Add</button></div>';
+      wireStepper('r_amt');
+      function isCont(){ var on=host.querySelector('#r_mode button.on'); return on&&on.getAttribute('data-u')==='cont'; }
+      function refreshHint(){ var h=host.querySelector('#r_hint');
+        if(isCont()){ h.textContent = it.ref.packConvertible ? ('1 '+contL+' = '+fmt(pack)+' '+unit+'; changes both counts.') : ('Changes the '+contL+' count only (no pack size set).'); }
+        else { h.textContent = 'Changes the '+unit+' total only (e.g. a partial '+contL+').'; }
       }
-      function addUI(){ body.innerHTML=stepperHTML('r_cnt',1,it.ref.container||'container')+
-        '<div class="hint">Adds whole '+esc(it.ref.container||'container')+'s of '+fmt(pack)+' '+esc(unit)+' each.</div>'+
-        '<div class="row-actions"><button class="btn btn-primary" id="r_add">Add</button></div>';
-        wireStepper('r_cnt');
-        body.querySelector('#r_add').onclick=function(){ adjustReagent(it.src, it.key, 'add', (num('r_cnt')*pack), 'new container'); };
-      }
-      useUI();
-      Array.prototype.forEach.call(host.querySelectorAll('.seg button'),function(b){ b.onclick=function(){
-        Array.prototype.forEach.call(host.querySelectorAll('.seg button'),function(x){x.classList.remove('on');}); b.classList.add('on');
-        (b.getAttribute('data-m')==='use'?useUI:addUI)();
-      };});
+      refreshHint();
+      Array.prototype.forEach.call(host.querySelectorAll('#r_mode button'),function(b){ b.onclick=function(){
+        Array.prototype.forEach.call(host.querySelectorAll('#r_mode button'),function(x){x.classList.remove('on');}); b.classList.add('on'); refreshHint(); };});
+      host.querySelector('#r_take').onclick=function(){ var v=num('r_amt'); if(v<=0)return App.toast('Enter an amount',true); var d=reagentDelta(it.ref, isCont(), v, -1); adjustReagentDual(it.src, it.key, d.unitDelta, d.containerDelta, 'take out', host.querySelector('#r_exp').value); };
+      host.querySelector('#r_add').onclick=function(){ var v=num('r_amt'); if(v<=0)return App.toast('Enter an amount',true); var d=reagentDelta(it.ref, isCont(), v, 1); adjustReagentDual(it.src, it.key, d.unitDelta, d.containerDelta, 'add', host.querySelector('#r_exp').value); };
       return;
     }
     if(it.kind==='totalseq'){
@@ -337,9 +335,10 @@ window.INV = (function(){
       '<div class="grid2"><div class="field"><label>Pack size (units per container)</label><input id="f_pack" class="mono" value="1"></div>'+
       '<div class="field"><label>Unit</label><input id="f_unit" placeholder="mL / uL / rxn"></div></div>'+
       '<div class="grid2"><div class="field"><label>On hand — containers</label><input id="f_cont" class="mono" value="1"></div>'+
-      '<div class="field"><label>Reorder at (units)</label><input id="f_reorder" class="mono"></div></div>'+
-      '<div class="grid2"><div class="field"><label>Location</label><input id="f_loc"></div>'+
-      '<div class="field"><label>Order status</label><input id="f_status" value="stocked"></div></div>';
+      '<div class="field"><label>On hand — units (blank = containers×pack)</label><input id="f_units" class="mono" placeholder="auto"></div></div>'+
+      '<div class="grid2"><div class="field"><label>Reorder at (units)</label><input id="f_reorder" class="mono"></div>'+
+      '<div class="field"><label>Location</label><input id="f_loc"></div></div>'+
+      '<div class="field"><label>Order status</label><input id="f_status" value="stocked"></div>';
   }
   function val(id){ var e=document.getElementById(id); return e?e.value.trim():''; }
   function submitNew(cat){
@@ -365,7 +364,7 @@ window.INV = (function(){
       subcategory:val('f_sub')|| (cat==='antibodies'?'Antibody':cat==='oligos'?'Oligo':'Reagent'),
       type:val('f_type'), concentration:val('f_conc'), sequence:val('f_seq'),
       container:val('f_container'), packSize:+val('f_pack')||1, unit:val('f_unit'),
-      onHandContainers:+val('f_cont')||0, reorderAt:val('f_reorder')?+val('f_reorder'):null,
+      onHandContainers:+val('f_cont')||0, onHandUnits:(val('f_units')!==''?+val('f_units'):null), reorderAt:val('f_reorder')?+val('f_reorder'):null,
       location:val('f_loc'), orderStatus:val('f_status')||'stocked', by:by })
       .then(afterWrite('Added item'));
   }
@@ -378,11 +377,12 @@ window.INV = (function(){
     kits.forEach(function(k){ (groups[k.experiment]=groups[k.experiment]||[]).push(k); });
     var order=Object.keys(groups).filter(function(g){return groups[g].length;}).sort();
     var html=pageHead('10X reagents','Grouped by assay. Expand a kit to edit or reserve a specific lot.', true);
+    var openAttr = search ? ' open' : '';
     if(!order.length) html+='<div class="empty">No kits match “'+esc(search)+'”.</div>';
     order.forEach(function(g){
       var list=groups[g].sort(function(a,b){return a.description.localeCompare(b.description);});
       var toOrder=0; // 10X has no reorder threshold wired; skip
-      html+='<details class="group" open><summary><span class="caret">▸</span><span class="g-title">'+esc(g)+'</span>'+
+      html+='<details class="group"'+openAttr+'><summary><span class="caret">▸</span><span class="g-title">'+esc(g)+'</span>'+
             '<span class="g-meta">'+list.length+' kit'+(list.length>1?'s':'')+'</span></summary><div class="rows">';
       list.forEach(function(k){
         var ki='10X Kits|'+k.catalog; var rv=idx.byItem[ki]||0; var avail=k.rxns-rv;
@@ -449,11 +449,12 @@ window.INV = (function(){
     items.forEach(function(x){ var g=(x[s.subKey]||'Other')||'Other'; (groups[g]=groups[g]||[]).push(x); });
     var order=Object.keys(groups).sort();
     var html=pageHead(s.label, null, true);
+    var openAttr = search ? ' open' : '';
     if(!items.length) html+='<div class="empty">Nothing matches '+(search?('“'+esc(search)+'”'):'yet')+'.</div>';
     order.forEach(function(g){
       var list=groups[g].sort(function(a,b){return (a.name||'').localeCompare(b.name||'');});
       var toOrder=list.filter(function(x){ return reorderState(x, idx)!=='ok'; }).length;
-      html+='<details class="group" open><summary><span class="caret">▸</span><span class="g-title">'+esc(g)+'</span>'+
+      html+='<details class="group"'+openAttr+'><summary><span class="caret">▸</span><span class="g-title">'+esc(g)+'</span>'+
             '<span class="g-meta">'+list.length+' item'+(list.length>1?'s':'')+(toOrder?(' · '+toOrder+' low'):'')+'</span></summary><div class="rows">';
       list.forEach(function(x){ html+=reagentRow(s, x, idx); });
       html+='</div></details>';
@@ -475,36 +476,59 @@ window.INV = (function(){
     var rv=idx.byItem[category+'|'+x.itemId]||0; var avail=(x.onHandUnits||0)-rv;
     var st = (x.onHandUnits||0)<=0?'out':(x.reorderAt!=null && avail<=x.reorderAt?'reorder':'ok');
     var flag = st==='out'?'<span class="flag out">out</span>':st==='reorder'?'<span class="flag reorder">reorder</span>':'';
-    return '<div class="irow" data-key="'+esc(x.itemId)+'">'+
+    var id=esc(x.itemId);
+    var contLabel=esc(x.container||'container');
+    var onhand='on hand <b>'+fmt(x.onHandUnits)+'</b> '+esc(x.unit||'')+
+               (x.onHandContainers!=null?(' · <b>'+fmt(x.onHandContainers)+'</b> '+contLabel+(x.onHandContainers==1?'':'s')):'');
+    return '<div class="irow" data-key="'+id+'">'+
       '<div class="nm">'+esc(x.name||'(unnamed)')+
         (x.catalog?'<span class="key" title="Catalog #">#'+esc(x.catalog)+'</span>':'')+
-        '<span class="key" title="Item ID">'+esc(x.itemId)+'</span>'+
+        '<span class="key" title="Item ID">'+id+'</span>'+
         (x.vendor?'<span class="key" title="Vendor">'+esc(x.vendor)+'</span>':'')+
         (x.concentration?'<span class="tag">'+esc(x.concentration)+'</span>':'')+' '+flag+'</div>'+
       '<div class="metrics">'+
-        '<span class="metric">on hand <b>'+fmt(x.onHandUnits)+'</b> '+esc(x.unit||'')+'</span>'+
+        '<span class="metric">'+onhand+'</span>'+
         reservedCell(category, x.itemId, x.unit)+
         '<span class="metric '+(st==='out'?'zero':st==='reorder'?'low':'avail')+'">avail <b>'+fmt(avail)+'</b> '+esc(x.unit||'')+'</span>'+
       '</div>'+
       '<div class="qty">'+
-        '<div class="stepper"><button data-adj="'+esc(x.itemId)+'|-1">−</button><input class="qv" id="q_'+esc(x.itemId)+'" value="1" inputmode="decimal"><button data-adj="'+esc(x.itemId)+'|1">＋</button></div>'+
-        '<button class="btn btn-sm" data-take="'+esc(x.itemId)+'">Take out</button>'+
-        '<button class="btn btn-sm" data-addc="'+esc(x.itemId)+'">＋ '+esc(x.container||'container')+' ('+fmt(x.packSize)+')</button>'+
-        '<button class="btn btn-sm btn-ghost" data-resv="'+esc(x.itemId)+'">Reserve</button>'+
+        '<div class="stepper"><button data-adj="'+id+'|-1">−</button><input class="qv" id="q_'+id+'" value="1" inputmode="decimal"><button data-adj="'+id+'|1">＋</button></div>'+
+        '<div class="seg unit-toggle" id="tg_'+id+'"><button class="on" data-u="unit">'+esc(x.unit||'unit')+'</button><button data-u="cont">'+contLabel+'</button></div>'+
+        '<button class="btn btn-sm" data-take="'+id+'">Take out</button>'+
+        '<button class="btn btn-sm" data-add="'+id+'">Add</button>'+
+        '<button class="btn btn-sm btn-ghost" data-resv="'+id+'">Reserve</button>'+
       '</div>'+
     '</div>';
+  }
+  // compute {unitDelta, containerDelta} for a reagent change
+  function reagentDelta(x, isContainer, amount, sign){
+    if(isContainer){
+      var ud = x.packConvertible ? sign*amount*(x.packSize||1) : 0;
+      return { unitDelta: ud, containerDelta: sign*amount };
+    }
+    return { unitDelta: sign*amount, containerDelta: 0 };
   }
   function wireReagentControls(s){
     var map={}; (data[s.src]||[]).forEach(function(x){ map[x.itemId]=x; });
     Array.prototype.forEach.call(elContent.querySelectorAll('[data-adj]'),function(b){
       b.onclick=function(){ var p=b.getAttribute('data-adj').split('|'); var i=document.getElementById('q_'+p[0]); var v=parseFloat(i.value)||0; v+=parseFloat(p[1]); if(v<0)v=0; i.value=Math.round(v*100)/100; };
     });
-    Array.prototype.forEach.call(elContent.querySelectorAll('[data-take]'),function(b){
-      b.onclick=function(){ var id=b.getAttribute('data-take'); var v=parseFloat(document.getElementById('q_'+id).value)||0; if(v<=0) return App.toast('Enter an amount', true);
-        adjustReagent(s.src, id, 'remove', v, ''); };
+    // unit/container toggle
+    Array.prototype.forEach.call(elContent.querySelectorAll('.unit-toggle'),function(tg){
+      Array.prototype.forEach.call(tg.querySelectorAll('button'),function(bt){
+        bt.onclick=function(){ Array.prototype.forEach.call(tg.querySelectorAll('button'),function(x){x.classList.remove('on');}); bt.classList.add('on'); };
+      });
     });
-    Array.prototype.forEach.call(elContent.querySelectorAll('[data-addc]'),function(b){
-      b.onclick=function(){ var id=b.getAttribute('data-addc'); var x=map[id]; var v=parseFloat(document.getElementById('q_'+id).value)||1; adjustReagent(s.src, id, 'add', v*(x.packSize||1), 'new container'); };
+    function modeIsContainer(id){ var tg=document.getElementById('tg_'+id); var on=tg&&tg.querySelector('button.on'); return !!(on && on.getAttribute('data-u')==='cont'); }
+    Array.prototype.forEach.call(elContent.querySelectorAll('[data-take]'),function(b){
+      b.onclick=function(){ var id=b.getAttribute('data-take'); var x=map[id]; var v=parseFloat(document.getElementById('q_'+id).value)||0; if(v<=0) return App.toast('Enter an amount', true);
+        var d=reagentDelta(x, modeIsContainer(id), v, -1);
+        adjustReagentDual(s.src, id, d.unitDelta, d.containerDelta, 'take out'); };
+    });
+    Array.prototype.forEach.call(elContent.querySelectorAll('[data-add]'),function(b){
+      b.onclick=function(){ var id=b.getAttribute('data-add'); var x=map[id]; var v=parseFloat(document.getElementById('q_'+id).value)||0; if(v<=0) return App.toast('Enter an amount', true);
+        var d=reagentDelta(x, modeIsContainer(id), v, 1);
+        adjustReagentDual(s.src, id, d.unitDelta, d.containerDelta, 'add'); };
     });
     Array.prototype.forEach.call(elContent.querySelectorAll('[data-resv]'),function(b){
       b.onclick=function(){ var x=map[b.getAttribute('data-resv')]; openReserveForm({category:s.sheet, itemKey:x.itemId, unit:x.unit, name:x.name}); };
@@ -518,10 +542,11 @@ window.INV = (function(){
     var groups={}; items.forEach(function(t){ var g=t.storageBox||'Other'; (groups[g]=groups[g]||[]).push(t); });
     var order=Object.keys(groups).sort();
     var html=pageHead('TotalSeq cocktails + HTOs', 'Grouped by storage box.', true);
+    var openAttr = search ? ' open' : '';
     if(!items.length) html+='<div class="empty">Nothing matches '+(search?('“'+esc(search)+'”'):'yet')+'.</div>';
     order.forEach(function(g){
       var list=groups[g].sort(function(a,b){ return String(a.tubeId).localeCompare(String(b.tubeId), undefined, {numeric:true}); });
-      html+='<details class="group"'+(list.length<=40?' open':'')+'><summary><span class="caret">▸</span><span class="g-title">'+esc(g)+'</span>'+
+      html+='<details class="group"'+openAttr+'><summary><span class="caret">▸</span><span class="g-title">'+esc(g)+'</span>'+
             '<span class="g-meta">'+list.length+' tube'+(list.length>1?'s':'')+'</span></summary><div class="rows">';
       list.forEach(function(t){
         var rv=idx.byItem['Totalseq Cocktails + HTOs|'+t.tubeId]||0;
@@ -624,11 +649,12 @@ window.INV = (function(){
   }
 
   /* ---------- write helpers ---------- */
-  function adjustReagent(src, key, mode, amount, exp){
+  function adjustReagentDual(src, key, unitDelta, containerDelta, reason, exp){
     var sheet = src==='reagents'?'Reagents & Supplies':src==='oligos'?'Oligos':'Antibodies';
     busy(true);
-    API.post({ action:'adjustReagent', sheet:sheet, itemKey:key, mode:mode, amount:amount, experiment:exp||'', by:who() })
-      .then(afterWrite(mode==='remove'?'Removed '+fmt(amount):'Added '+fmt(amount)));
+    var msg = (unitDelta||containerDelta) ? ((unitDelta<0||containerDelta<0)?'Removed':'Added') : 'Updated';
+    API.post({ action:'adjustReagent', sheet:sheet, itemKey:key, unitDelta:unitDelta, containerDelta:containerDelta, reason:reason||'', experiment:exp||'', by:who() })
+      .then(afterWrite(msg));
   }
   function adjust10x(mode, cat, lot, amount, exp){
     if(amount<=0) return App.toast('Enter an amount', true);
