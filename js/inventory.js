@@ -6,6 +6,7 @@ window.INV = (function(){
   var section = 'update';          // current sub-section id
   var search = '';                 // current search text (per section)
   var expanded = {};               // 10X: expanded kit rows (catalog -> true)
+  var openGroups = {};             // which collapsible groups are open (reset per section)
   var updateMode = 'one';          // 'one' | 'bulk' within Update inventory
   var bulkCat = 'reagents';        // category for the bulk grid
   var elContent = null, elSubnav = null;
@@ -73,7 +74,7 @@ window.INV = (function(){
     });
     elSubnav.innerHTML=html;
     Array.prototype.forEach.call(elSubnav.querySelectorAll('[data-sec]'), function(b){
-      b.onclick=function(){ section=b.getAttribute('data-sec'); search=''; renderSubnav(); renderSection(); elContent.scrollIntoView({block:'start'}); };
+      b.onclick=function(){ section=b.getAttribute('data-sec'); search=''; openGroups={}; renderSubnav(); renderSection(); elContent.scrollIntoView({block:'start'}); };
     });
   }
   function countFor(s){
@@ -104,6 +105,14 @@ window.INV = (function(){
     i.oninput=function(){ search=i.value; rerender(); var again=document.getElementById('invSearch'); if(again){ again.focus(); var v=again.value; again.value=''; again.value=v; } };
   }
   function matchText(q, parts){ q=(q||'').toLowerCase().trim(); if(!q) return true; var hay=parts.join(' ').toLowerCase(); return q.split(/\s+/).every(function(t){return hay.indexOf(t)>=0;}); }
+
+  // collapsible group open-state: collapsed by default, but preserved across re-renders/reloads
+  function grpOpen(key){ return (search || openGroups[key]) ? ' open' : ''; }
+  function wireGroups(){
+    Array.prototype.forEach.call(elContent.querySelectorAll('details.group[data-gkey]'), function(d){
+      d.addEventListener('toggle', function(){ openGroups[d.getAttribute('data-gkey')] = d.open; });
+    });
+  }
 
   /* ---------- reserved cell (clickable) ---------- */
   function reservedCell(category, itemKey, unit){
@@ -499,12 +508,10 @@ window.INV = (function(){
     kits.forEach(function(k){ (groups[k.experiment]=groups[k.experiment]||[]).push(k); });
     var order=Object.keys(groups).filter(function(g){return groups[g].length;}).sort();
     var html=pageHead('10X reagents','Grouped by assay. Expand a kit to edit or reserve a specific lot.', true);
-    var openAttr = search ? ' open' : '';
     if(!order.length) html+='<div class="empty">No kits match “'+esc(search)+'”.</div>';
     order.forEach(function(g){
       var list=groups[g].sort(function(a,b){return a.description.localeCompare(b.description);});
-      var toOrder=0; // 10X has no reorder threshold wired; skip
-      html+='<details class="group"'+openAttr+'><summary><span class="caret">▸</span><span class="g-title">'+esc(g)+'</span>'+
+      html+='<details class="group" data-gkey="'+esc(g)+'"'+grpOpen(g)+'><summary><span class="caret">▸</span><span class="g-title">'+esc(g)+'</span>'+
             '<span class="g-meta">'+list.length+' kit'+(list.length>1?'s':'')+'</span></summary><div class="rows">';
       list.forEach(function(k){
         var ki='10X Kits|'+k.catalog; var rv=idx.byItem[ki]||0; var avail=k.rxns-rv;
@@ -525,9 +532,16 @@ window.INV = (function(){
     });
     elContent.innerHTML='<div class="content">'+html+'</div>';
     wireSearch(render10x);
-    // expand toggles
+    wireGroups();
+    // expand/collapse a kit's lots IN PLACE (no full re-render, so the category stays open)
     Array.prototype.forEach.call(elContent.querySelectorAll('[data-exp]'),function(b){
-      b.onclick=function(){ var c=b.getAttribute('data-exp'); expanded[c]=!expanded[c]; render10x(); };
+      b.onclick=function(){
+        var c=b.getAttribute('data-exp'); expanded[c]=!expanded[c];
+        var row=b.closest('.irow'); if(!row) return;
+        row.classList.toggle('expanded', expanded[c]);
+        var n=row.querySelectorAll('.lot').length;
+        b.textContent = expanded[c] ? 'Hide lots' : (n+' lot'+(n>1?'s':''));
+      };
     });
     wireReservedLinks();
     wireLotControls();
@@ -571,18 +585,17 @@ window.INV = (function(){
     items.forEach(function(x){ var g=(x[s.subKey]||'Other')||'Other'; (groups[g]=groups[g]||[]).push(x); });
     var order=Object.keys(groups).sort();
     var html=pageHead(s.label, null, true);
-    var openAttr = search ? ' open' : '';
     if(!items.length) html+='<div class="empty">Nothing matches '+(search?('“'+esc(search)+'”'):'yet')+'.</div>';
     order.forEach(function(g){
       var list=groups[g].sort(function(a,b){return (a.name||'').localeCompare(b.name||'');});
       var toOrder=list.filter(function(x){ return reorderState(x, idx)!=='ok'; }).length;
-      html+='<details class="group"'+openAttr+'><summary><span class="caret">▸</span><span class="g-title">'+esc(g)+'</span>'+
+      html+='<details class="group" data-gkey="'+esc(g)+'"'+grpOpen(g)+'><summary><span class="caret">▸</span><span class="g-title">'+esc(g)+'</span>'+
             '<span class="g-meta">'+list.length+' item'+(list.length>1?'s':'')+(toOrder?(' · '+toOrder+' low'):'')+'</span></summary><div class="rows">';
       list.forEach(function(x){ html+=reagentRow(s, x, idx); });
       html+='</div></details>';
     });
     elContent.innerHTML='<div class="content">'+html+'</div>';
-    wireSearch(function(){ renderReagent(s); });
+    wireSearch(function(){ renderReagent(s); }); wireGroups();
     wireReservedLinks();
     wireReagentControls(s);
   }
@@ -664,11 +677,10 @@ window.INV = (function(){
     var groups={}; items.forEach(function(t){ var g=t.storageBox||'Other'; (groups[g]=groups[g]||[]).push(t); });
     var order=Object.keys(groups).sort();
     var html=pageHead('TotalSeq cocktails + HTOs', 'Grouped by storage box.', true);
-    var openAttr = search ? ' open' : '';
     if(!items.length) html+='<div class="empty">Nothing matches '+(search?('“'+esc(search)+'”'):'yet')+'.</div>';
     order.forEach(function(g){
       var list=groups[g].sort(function(a,b){ return String(a.tubeId).localeCompare(String(b.tubeId), undefined, {numeric:true}); });
-      html+='<details class="group"'+openAttr+'><summary><span class="caret">▸</span><span class="g-title">'+esc(g)+'</span>'+
+      html+='<details class="group" data-gkey="'+esc(g)+'"'+grpOpen(g)+'><summary><span class="caret">▸</span><span class="g-title">'+esc(g)+'</span>'+
             '<span class="g-meta">'+list.length+' tube'+(list.length>1?'s':'')+'</span></summary><div class="rows">';
       list.forEach(function(t){
         var rv=idx.byItem['Totalseq Cocktails + HTOs|'+t.tubeId]||0;
@@ -693,7 +705,7 @@ window.INV = (function(){
       html+='</div></details>';
     });
     elContent.innerHTML='<div class="content">'+html+'</div>';
-    wireSearch(renderTotalseq);
+    wireSearch(renderTotalseq); wireGroups();
     wireReservedLinks();
     function amt(id){ return Math.max(0, parseFloat(document.getElementById('tq_'+id).value)||0); }
     Array.prototype.forEach.call(elContent.querySelectorAll('[data-tadj]'),function(b){
@@ -719,10 +731,15 @@ window.INV = (function(){
     order.forEach(function(exp){
       var list=byExp[exp]; var act=list.filter(function(r){return r.status==='active';});
       var proj=(act[0]&&act[0].project)||'';
-      html+='<details class="group"><summary><span class="caret">▸</span>'+
+      html+='<details class="group" data-gkey="'+esc(exp)+'"'+grpOpen(exp)+'><summary><span class="caret">▸</span>'+
         '<span class="g-title">'+esc(exp)+'</span>'+
         '<span class="g-meta">'+act.length+' item'+(act.length===1?'':'s')+' reserved'+(proj?(' · '+esc(proj)):'')+'</span></summary>'+
-        '<div class="rows" style="padding:6px 14px">';
+        '<div class="rows" style="padding:6px 14px">'+
+        '<div class="row-actions" style="padding:2px 0 8px;margin-bottom:6px;border-bottom:1px dashed var(--line)">'+
+          '<span style="font-size:12.5px;color:var(--muted);align-self:center;margin-right:auto">Whole experiment ('+act.length+' item'+(act.length===1?'':'s')+'):</span>'+
+          '<button class="btn btn-sm btn-primary" data-expfulfill="'+esc(exp)+'">Remove all from inventory</button>'+
+          '<button class="btn btn-sm btn-danger" data-expcancel="'+esc(exp)+'">Cancel all</button>'+
+        '</div>';
       list.forEach(function(r){
         var done = r.status==='fulfilled';
         html+='<div class="res-item" style="'+(done?'opacity:.6':'')+'">'+
@@ -757,6 +774,25 @@ window.INV = (function(){
         busy(true); API.post({action:'fulfillReservation', reservationId:id, by:who()}).then(afterWrite('Removed from inventory — reservation complete')); };
     });
     Array.prototype.forEach.call(elContent.querySelectorAll('[data-release]'),function(b){ b.onclick=function(){ releaseRes(b.getAttribute('data-release')); };});
+    function activeIdsFor(exp){ return (data.reservations||[]).filter(function(r){ return r.status==='active' && (r.experiment||r.project||'(unlabeled)')===exp; }).map(function(r){return r.id;}); }
+    Array.prototype.forEach.call(elContent.querySelectorAll('[data-expfulfill]'),function(b){
+      b.onclick=function(){ var exp=b.getAttribute('data-expfulfill'); var ids=activeIdsFor(exp); if(!ids.length) return;
+        confirmAction('Remove all '+ids.length+' reserved item'+(ids.length===1?'':'s')+' for “'+exp+'” from inventory? This deducts each amount from stock and marks them complete.', 'Remove all', true, function(){
+          busy(true); API.post({action:'fulfillMany', ids:ids, by:who()}).then(afterWrite('Removed '+ids.length+' item'+(ids.length===1?'':'s')+' from inventory')); }); };
+    });
+    Array.prototype.forEach.call(elContent.querySelectorAll('[data-expcancel]'),function(b){
+      b.onclick=function(){ var exp=b.getAttribute('data-expcancel'); var ids=activeIdsFor(exp); if(!ids.length) return;
+        confirmAction('Cancel all '+ids.length+' reservation'+(ids.length===1?'':'s')+' for “'+exp+'”? This frees the reserved amounts back to available (nothing is removed from stock).', 'Cancel all', false, function(){
+          busy(true); API.post({action:'releaseMany', ids:ids, by:who()}).then(afterWrite('Cancelled '+ids.length+' reservation'+(ids.length===1?'':'s'))); }); };
+    });
+    wireGroups();
+  }
+  function confirmAction(msg, okLabel, danger, cb){
+    App.drawer('Please confirm', '<p style="margin:0 0 16px;color:var(--ink)">'+esc(msg)+'</p>'+
+      '<div class="row-actions"><button class="btn" id="cf_no">Back</button>'+
+      '<button class="btn '+(danger?'btn-danger':'btn-primary')+'" id="cf_yes">'+esc(okLabel)+'</button></div>');
+    document.getElementById('cf_no').onclick=function(){ App.closeDrawer(); };
+    document.getElementById('cf_yes').onclick=function(){ App.closeDrawer(); cb(); };
   }
 
   // ---- Multi-item reservation form ----

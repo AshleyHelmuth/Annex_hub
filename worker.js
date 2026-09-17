@@ -246,6 +246,8 @@ async function postInventory(request, env){
     case 'reserveBulk':     return reserveBulk(env, token, body);
     case 'updateReservation': return updateReservation(env, token, body);
     case 'fulfillReservation': return fulfillReservation(env, token, body);
+    case 'fulfillMany':     return fulfillMany(env, token, body);
+    case 'releaseMany':     return releaseMany(env, token, body);
     case 'releaseReservation': return releaseReservation(env, token, body);
     default: return { ok:false, error:'unknown_action:'+action };
   }
@@ -510,6 +512,27 @@ async function fulfillReservation(env, token, b){
   }
   await sheetsUpdate(env, token, "'"+SHEETS.reservations+"'!"+colLetter(h['status'])+(idx+1), ['fulfilled']);
   return { ok:true, fulfilled:qty };
+}
+
+// fulfil / release a whole set of reservation ids (e.g. an entire experiment)
+async function fulfillMany(env, token, b){
+  const ids=Array.isArray(b.ids)?b.ids:[];
+  let done=0; const errs=[];
+  for(const id of ids){
+    try{ const r=await fulfillReservation(env, token, { reservationId:id, by:b.by }); if(r&&r.ok) done++; else errs.push(id+':'+(r&&r.error||'?')); }
+    catch(e){ errs.push(id+':'+String(e.message||e)); }
+  }
+  return { ok:errs.length===0, fulfilled:done, errors:errs };
+}
+async function releaseMany(env, token, b){
+  const ids=Array.isArray(b.ids)?b.ids:[];
+  const v=await readTab(env,token,SHEETS.reservations); const h=hindex(v);
+  let done=0;
+  for(const id of ids){
+    const idx=findRow(v, h['reservation_id']||0, id);
+    if(idx>=0){ await sheetsUpdate(env, token, "'"+SHEETS.reservations+"'!"+colLetter(h['status'])+(idx+1), ['released']); done++; }
+  }
+  return { ok:true, released:done };
 }
 
 async function logMovement(env, token, m){
