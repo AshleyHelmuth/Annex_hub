@@ -2,12 +2,10 @@ name = "annex-hub"
 main = "worker.js"
 compatibility_date = "2025-09-01"
 
-[vars]
-INVENTORY_SHEET_ID = "1EXC2kdreRnWj5c3ONbNO5US4RI6iWHedCL3SDJxrgbw"
-
 [assets]
 directory = "."
 binding = "ASSETS"
+
 # Variables to set in the Cloudflare dashboard (Settings -> Variables and Secrets):
 #   GOOGLE_SA_KEY       (Secret)    — the full service-account JSON key
 #   INVENTORY_SHEET_ID  (Plaintext) — the Google Sheet ID of Live_Inventory

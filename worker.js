@@ -178,6 +178,7 @@ async function getInventory(env){
         itemId:cleanId(r[0]), name:(r[h['Item']]||'').toString(), subcategory:(r[h['Category']]||'').toString(),
         type:(h['Type']!=null? (r[h['Type']]||'').toString():''),
         concentration:(h['Concentration']!=null?(r[h['Concentration']]||'').toString():''),
+        catalog:(h['Catalog #']!=null?cleanId(r[h['Catalog #']]):''), vendor:(h['Vendor']!=null?(r[h['Vendor']]||'').toString():''),
         container:(r[h['Container']]||'').toString(), packSize:pack, unit:(r[h['Unit']]||'').toString(),
         onHandUnits:units, onHandContainers:(cont!=null?cont:(units!=null&&pack?units/pack:null)),
         reorderAt:cleanNum(r[h['Reorder at']]), orderStatus:(r[h['Order status']]||'').toString(),

@@ -130,11 +130,11 @@ window.INV = (function(){
   /* ---------- UPDATE INVENTORY ---------- */
   function allItemsFlat(){
     var out=[];
-    (data.tenX||[]).forEach(function(k){ out.push({category:'10X Kits', key:k.catalog, name:k.description, kind:'tenx', ref:k}); });
+    (data.tenX||[]).forEach(function(k){ out.push({category:'10X Kits', key:k.catalog, catalog:k.catalog, name:k.description, kind:'tenx', ref:k}); });
     ['reagents','oligos','antibodies'].forEach(function(src){
-      (data[src]||[]).forEach(function(x){ out.push({category:sourceSheet(src), key:x.itemId, name:x.name, kind:'reagent', src:src, ref:x}); });
+      (data[src]||[]).forEach(function(x){ out.push({category:sourceSheet(src), key:x.itemId, catalog:x.catalog||'', name:x.name, kind:'reagent', src:src, ref:x}); });
     });
-    (data.totalseq||[]).forEach(function(t){ out.push({category:'Totalseq Cocktails + HTOs', key:t.tubeId, name:(t.storageBox+' '+t.tubeId), kind:'totalseq', ref:t}); });
+    (data.totalseq||[]).forEach(function(t){ out.push({category:'Totalseq Cocktails + HTOs', key:t.tubeId, catalog:t.catalog||'', name:(t.storageBox+' '+t.tubeId), kind:'totalseq', ref:t}); });
     return out;
   }
   function sourceSheet(src){ return src==='reagents'?'Reagents & Supplies':src==='oligos'?'Oligos':src==='antibodies'?'Antibodies':src; }
@@ -161,7 +161,7 @@ window.INV = (function(){
     addWrap.innerHTML='';
     if(!k){ wrap.innerHTML=''; return; }
     var norm=k.replace(/\.0$/,'').toLowerCase();
-    var hit=allItemsFlat().filter(function(it){ return String(it.key).toLowerCase()===norm; })[0];
+    var hit=allItemsFlat().filter(function(it){ return String(it.key).toLowerCase()===norm || (it.catalog&&String(it.catalog).toLowerCase()===norm); })[0];
     if(hit){ wrap.innerHTML=''; wrap.appendChild(matchCard(hit)); }
     else {
       wrap.innerHTML='<div class="hint">No item with that catalog #/ID. You can add it as a new item below.</div>';
@@ -171,7 +171,7 @@ window.INV = (function(){
   function suggestByName(q){
     var box=document.getElementById('lookupSuggest'); var wrap=document.getElementById('lookupResult');
     wrap.innerHTML=''; if(!q||q.length<2){ box.innerHTML=''; return; }
-    var hits=allItemsFlat().filter(function(it){ return matchText(q,[it.name,it.key,it.category]); }).slice(0,12);
+    var hits=allItemsFlat().filter(function(it){ return matchText(q,[it.name,it.key,it.catalog,it.category]); }).slice(0,12);
     if(!hits.length){ box.innerHTML='<div class="suggest"><div class="s-item" style="cursor:default;color:var(--faint)">No matches</div></div>'; return; }
     box.innerHTML='<div class="suggest">'+hits.map(function(h,i){
       return '<div class="s-item" data-i="'+i+'">'+esc(h.name||'(unnamed)')+'<span class="key">'+esc(h.key)+' · '+esc(h.category)+'</span></div>';
@@ -189,7 +189,9 @@ window.INV = (function(){
       line=fmt(it.ref.boxes)+' kits · '+fmt(it.ref.rxns)+' rxns on hand'+(rv?(' · '+fmt(rv)+' reserved'):'');
     } else if(it.kind==='reagent'){ line=fmt(it.ref.onHandUnits)+' '+esc(it.ref.unit||'')+' on hand ('+fmt(it.ref.onHandContainers)+' '+esc(it.ref.container||'container')+')'; }
     else if(it.kind==='totalseq'){ line=esc(it.ref.remaining)+' remaining · lot '+esc(it.ref.lot||'—'); }
-    d.innerHTML='<div class="mc-name">'+esc(it.name)+' <span class="key" style="font-family:var(--mono);color:var(--faint);font-size:12px">'+esc(it.key)+'</span></div>'+
+    d.innerHTML='<div class="mc-name">'+esc(it.name)+
+      (it.catalog?' <span class="key" style="font-family:var(--mono);color:var(--faint);font-size:12px">#'+esc(it.catalog)+'</span>':'')+
+      ' <span class="key" style="font-family:var(--mono);color:var(--faint);font-size:12px">'+esc(it.key)+'</span></div>'+
       '<div class="r-for" style="margin:3px 0 10px">'+line+'</div>'+
       '<div id="mcActions"></div>';
     setTimeout(function(){ mountUpdateActions(d.querySelector('#mcActions'), it); },0);
@@ -474,7 +476,10 @@ window.INV = (function(){
     var st = (x.onHandUnits||0)<=0?'out':(x.reorderAt!=null && avail<=x.reorderAt?'reorder':'ok');
     var flag = st==='out'?'<span class="flag out">out</span>':st==='reorder'?'<span class="flag reorder">reorder</span>':'';
     return '<div class="irow" data-key="'+esc(x.itemId)+'">'+
-      '<div class="nm">'+esc(x.name||'(unnamed)')+'<span class="key">'+esc(x.itemId)+'</span>'+
+      '<div class="nm">'+esc(x.name||'(unnamed)')+
+        (x.catalog?'<span class="key" title="Catalog #">#'+esc(x.catalog)+'</span>':'')+
+        '<span class="key" title="Item ID">'+esc(x.itemId)+'</span>'+
+        (x.vendor?'<span class="key" title="Vendor">'+esc(x.vendor)+'</span>':'')+
         (x.concentration?'<span class="tag">'+esc(x.concentration)+'</span>':'')+' '+flag+'</div>'+
       '<div class="metrics">'+
         '<span class="metric">on hand <b>'+fmt(x.onHandUnits)+'</b> '+esc(x.unit||'')+'</span>'+
@@ -523,6 +528,7 @@ window.INV = (function(){
         var cur=parseFloat(String(t.remaining).replace(/[^0-9.\-]/g,'')); var hasNum=isFinite(cur);
         html+='<div class="irow" data-tube="'+esc(t.tubeId)+'">'+
           '<div class="nm">'+esc(t.tubeId)+(t.hashtag?'<span class="tag">HTO '+esc(t.hashtag)+'</span>':'')+
+            (t.catalog?'<span class="key" title="Catalog #">#'+esc(t.catalog)+'</span>':'')+
             '<span class="key">'+esc(t.version?('v'+t.version):'')+(t.lot?(' · '+t.lot):'')+'</span></div>'+
           '<div class="metrics">'+
             '<span class="metric">remaining <b>'+esc(t.remaining||'—')+'</b></span>'+
@@ -596,7 +602,7 @@ window.INV = (function(){
     if(!pre.itemKey){
       var si=document.getElementById('rf_search'); var box=document.getElementById('rf_suggest');
       si.oninput=function(){ var q=si.value.trim(); if(q.length<2){box.innerHTML='';return;}
-        var hits=items.filter(function(it){return matchText(q,[it.name,it.key,it.category]);}).slice(0,10);
+        var hits=items.filter(function(it){return matchText(q,[it.name,it.key,it.catalog,it.category]);}).slice(0,10);
         box.innerHTML='<div class="suggest">'+hits.map(function(h,i){return '<div class="s-item" data-i="'+i+'">'+esc(h.name||'(unnamed)')+'<span class="key">'+esc(h.key)+' · '+esc(h.category)+'</span></div>';}).join('')+'</div>';
         Array.prototype.forEach.call(box.querySelectorAll('[data-i]'),function(el){ el.onclick=function(){ var h=hits[+el.getAttribute('data-i')];
           chosen={category:h.category, itemKey:h.key, itemName:h.name, unit:(h.kind==='tenx'?'rxns':(h.ref.unit||'units'))};
