@@ -34,6 +34,15 @@ export default {
         return json({ ok:false, error:String(e && e.message || e) }, 500);
       }
     }
+    if (url.pathname === '/api/book') {
+      try {
+        if (request.method === 'GET')  return json({ ok:true, configured: !!env.GOOGLE_SA_KEY });
+        if (request.method === 'POST') return json(await bookEvent(request, env));
+        return json({ ok:false, error:'method_not_allowed' }, 405);
+      } catch (e) {
+        return json({ ok:false, error:String(e && e.message || e) }, 500);
+      }
+    }
     // static assets
     return env.ASSETS.fetch(request);
   }
@@ -60,7 +69,7 @@ async function getAccessToken(env){
   const header = { alg:'RS256', typ:'JWT' };
   const claim = {
     iss: key.client_email,
-    scope: 'https://www.googleapis.com/auth/spreadsheets',
+    scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/calendar',
     aud: 'https://oauth2.googleapis.com/token',
     exp: now + 3600, iat: now,
   };
@@ -83,6 +92,74 @@ async function importPrivateKey(pem){
   const bin = atob(body); const buf = new Uint8Array(bin.length);
   for(let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i);
   return crypto.subtle.importKey('pkcs8', buf.buffer, {name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'}, false, ['sign']);
+}
+
+/* ---------- Google Calendar (equipment booking) ---------- */
+const CAL_API='https://www.googleapis.com/calendar/v3';
+async function bookEvent(request, env){
+  if(!env.GOOGLE_SA_KEY) return { ok:false, error:'not_configured' };
+  const b = await request.json();
+  const calId = (b.calendarId||'').trim();
+  if(!calId) return { ok:false, error:'missing_calendar' };
+  const tz = b.tz || 'America/New_York';
+  // accept either full dateTime strings or date + HH:MM
+  const startDT = b.startDateTime || (b.date && b.start ? (b.date+'T'+b.start+':00') : null);
+  const endDT   = b.endDateTime   || (b.date && b.end   ? (b.date+'T'+b.end+':00')   : null);
+  if(!startDT || !endDT) return { ok:false, error:'missing_time' };
+  if(endDT <= startDT) return { ok:false, error:'end_before_start' };
+  const token = await getAccessToken(env);
+
+  // conflict check: list events overlapping the window
+  const enc = encodeURIComponent;
+  // Google needs an RFC3339 timeMin/timeMax; append the zone offset by asking Calendar to interpret in tz.
+  // Simplest robust approach: query a generous day window and compare against requested local window.
+  const dayStart = (b.date||startDT.slice(0,10))+'T00:00:00';
+  const dayEnd   = (b.date||endDT.slice(0,10))+'T23:59:59';
+  const listUrl = `${CAL_API}/calendars/${enc(calId)}/events?singleEvents=true&orderBy=startTime`+
+    `&timeMin=${enc(dayStart+zoneOffset(tz,dayStart))}&timeMax=${enc(dayEnd+zoneOffset(tz,dayEnd))}`;
+  const lr = await fetch(listUrl, { headers:{ authorization:'Bearer '+token } });
+  const ld = await lr.json();
+  if(ld.error) return { ok:false, error:'calendar_read: '+ld.error.message };
+  const reqS = new Date(startDT+zoneOffset(tz,startDT)).getTime();
+  const reqE = new Date(endDT+zoneOffset(tz,endDT)).getTime();
+  const conflicts=[];
+  (ld.items||[]).forEach(ev=>{
+    if(ev.status==='cancelled') return;
+    const s=ev.start&&ev.start.dateTime, e=ev.end&&ev.end.dateTime;
+    if(!s||!e) return; // skip all-day
+    const es=new Date(s).getTime(), ee=new Date(e).getTime();
+    if(es < reqE && ee > reqS) conflicts.push({ summary:ev.summary||'(busy)', start:s, end:e });
+  });
+  if(conflicts.length && !b.force) return { ok:false, conflict:true, conflicts };
+
+  // insert
+  const who = (b.by||b.requester||'').trim();
+  const summary = (b.summary && b.summary.trim()) || ((who?who+' — ':'')+(b.equipment||'Reservation'));
+  const desc = [b.purpose?('Purpose: '+b.purpose):'', who?('Booked by: '+who):'', 'via Annex Hub'].filter(Boolean).join('\n');
+  const body = {
+    summary, description: desc,
+    start:{ dateTime:startDT, timeZone:tz },
+    end:{ dateTime:endDT, timeZone:tz }
+  };
+  const ir = await fetch(`${CAL_API}/calendars/${enc(calId)}/events`, {
+    method:'POST', headers:{ authorization:'Bearer '+token, 'content-type':'application/json' },
+    body: JSON.stringify(body)
+  });
+  const id = await ir.json();
+  if(id.error) return { ok:false, error:'calendar_write: '+id.error.message };
+  return { ok:true, eventId:id.id, htmlLink:id.htmlLink, forced: !!(conflicts.length && b.force) };
+}
+// crude fixed-offset for America/New_York (EDT/EST). Good enough for conflict windowing.
+function zoneOffset(tz, localISO){
+  if(tz!=='America/New_York') return 'Z';
+  const m=localISO.match(/^(\d{4})-(\d{2})-(\d{2})/); if(!m) return '-05:00';
+  const y=+m[1], mo=+m[2], d=+m[3];
+  // DST in US: 2nd Sunday March -> 1st Sunday November
+  const secondSunMar=(()=>{ let c=0; for(let day=1;day<=14;day++){ if(new Date(Date.UTC(y,2,day)).getUTCDay()===0){c++; if(c===2)return day;} } return 8; })();
+  const firstSunNov=(()=>{ for(let day=1;day<=7;day++){ if(new Date(Date.UTC(y,10,day)).getUTCDay()===0) return day; } return 1; })();
+  const afterStart = (mo>3)||(mo===3&&d>=secondSunMar);
+  const beforeEnd  = (mo<11)||(mo===11&&d<firstSunNov);
+  return (afterStart&&beforeEnd) ? '-04:00' : '-05:00';
 }
 
 /* ---------- Sheets REST ---------- */

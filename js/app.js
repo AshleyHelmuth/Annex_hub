@@ -35,6 +35,7 @@ window.App = (function(){
   function switchTab(tab){
     Array.prototype.forEach.call(document.querySelectorAll('.topnav-tab'), function(b){ b.classList.toggle('is-active', b.getAttribute('data-tab')===tab); });
     Array.prototype.forEach.call(document.querySelectorAll('.view'), function(v){ v.classList.toggle('is-active', v.id==='view-'+tab); });
+    if(tab==='scheduling' && window.Scheduling) Scheduling.mount();
   }
 
   function boot(){

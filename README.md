@@ -41,3 +41,7 @@ You should see `true`, the kit count, and the reagent count.
 - **Adding new TotalSeq tubes** from the UI isn't wired yet — add tube rows directly in the sheet for now; editing existing tubes' remaining volume works.
 - **10X "use"** draws rxns down from the boxes with the most remaining first; adding a box/lot appends a new Kit ID (`{catalog}-NNN`). Boxes aren't hard-deleted (they go to 0 rxns) so row identity stays stable.
 - Writes go straight to the sheet and the page reloads from it, so two people editing at once always see the latest saved state (last write wins per cell).
+
+## Scheduling tab
+
+The Scheduling tab reserves Annex equipment by writing events straight to each instrument's shared Google Calendar (via `/api/book`, using the **same** service account as the inventory), and shows all instrument calendars overlaid in one view. It reuses the singlecell-planner's equipment calendars, so no new Google setup is needed — those calendars are already shared with the service account. Booking checks for time conflicts first and offers "Book anyway" if you intend to double-book. Tapestation is walk-up (display only, no reservation). If `GOOGLE_SA_KEY` isn't set the calendar view still works and booking shows a setup notice.
