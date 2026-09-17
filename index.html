@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Annex Hub — Lab inventory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="appbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-name">Annex&nbsp;Hub</span>
+    <span class="brand-sub">Yale Biohub Annex</span>
+  </div>
+  <div class="appbar-right">
+    <span id="syncPill" class="pill pill-idle" title="Live inventory status">Connecting…</span>
+    <button id="refreshBtn" class="icon-btn" title="Refresh from the live sheet" aria-label="Refresh">↻</button>
+  </div>
+</header>
+
+<nav class="topnav" id="topnav">
+  <button class="topnav-tab is-active" data-tab="inventory">Inventory</button>
+  <button class="topnav-tab" data-tab="scheduling">Scheduling</button>
+  <button class="topnav-tab" data-tab="annex">Annex usage</button>
+  <button class="topnav-tab" data-tab="guidelines">Guidelines</button>
+</nav>
+
+<main class="stage">
+  <!-- Inventory -->
+  <section class="view is-active" id="view-inventory">
+    <aside class="subnav" id="subnav" aria-label="Inventory sections"></aside>
+    <div class="content" id="invContent"></div>
+  </section>
+
+  <!-- Placeholder views -->
+  <section class="view" id="view-scheduling">
+    <div class="content placeholder">
+      <h1>Scheduling</h1>
+      <p>Equipment booking and the shared lab calendar will live here, wired to the same Google Calendars as the planner. We're building the inventory tab first — this comes next.</p>
+    </div>
+  </section>
+  <section class="view" id="view-annex">
+    <div class="content placeholder">
+      <h1>Annex usage</h1>
+      <p>Room and bench-space usage tracking for the Annex will live here. Coming after inventory.</p>
+    </div>
+  </section>
+  <section class="view" id="view-guidelines">
+    <div class="content placeholder">
+      <h1>Guidelines</h1>
+      <p>Lab guidelines, SOP links, and quick references will live here. Coming after inventory.</p>
+    </div>
+  </section>
+</main>
+
+<div id="sheet" class="drawer" aria-hidden="true"></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="js/api.js"></script>
+<script src="js/inventory.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

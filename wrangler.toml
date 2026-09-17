@@ -1,0 +1,12 @@
+name = "annex-hub"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+
+[assets]
+directory = "."
+binding = "ASSETS"
+
+# Variables to set in the Cloudflare dashboard (Settings -> Variables and Secrets):
+#   GOOGLE_SA_KEY       (Secret)    — the full service-account JSON key
+#   INVENTORY_SHEET_ID  (Plaintext) — the Google Sheet ID of Live_Inventory
+# These are the SAME two values you already set on the singlecell-planner Worker.
