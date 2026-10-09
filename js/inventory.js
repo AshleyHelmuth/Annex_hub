@@ -266,7 +266,7 @@ window.INV = (function(){
           '<div class="seg" id="r_mode"><button class="on" data-u="unit">'+esc(unit)+'</button><button data-u="cont">'+esc(contL)+'</button></div>'+
           '<div class="hint" id="r_hint"></div></div>'+
         '<div class="field"><label>For experiment (optional)</label><input id="r_exp" placeholder="e.g. ASAP batch"></div>'+
-        '<div class="row-actions"><button class="btn" id="r_take">Take out</button><button class="btn btn-primary" id="r_add">Add</button></div>';
+        '<div class="row-actions"><button class="btn" id="r_take">Take out</button><button class="btn btn-primary" id="r_add">Add</button><button class="btn btn-ghost" id="r_set">Set to</button></div>';
       wireStepper('r_amt');
       function isCont(){ var on=host.querySelector('#r_mode button.on'); return on&&on.getAttribute('data-u')==='cont'; }
       function refreshHint(){ var h=host.querySelector('#r_hint');
@@ -278,6 +278,7 @@ window.INV = (function(){
         Array.prototype.forEach.call(host.querySelectorAll('#r_mode button'),function(x){x.classList.remove('on');}); b.classList.add('on'); refreshHint(); };});
       host.querySelector('#r_take').onclick=function(){ var v=num('r_amt'); if(v<=0)return App.toast('Enter an amount',true); var d=reagentDelta(it.ref, isCont(), v, -1); adjustReagentDual(it.src, it.key, d.unitDelta, d.containerDelta, 'take out', host.querySelector('#r_exp').value); };
       host.querySelector('#r_add').onclick=function(){ var v=num('r_amt'); if(v<=0)return App.toast('Enter an amount',true); var d=reagentDelta(it.ref, isCont(), v, 1); adjustReagentDual(it.src, it.key, d.unitDelta, d.containerDelta, 'add', host.querySelector('#r_exp').value); };
+      host.querySelector('#r_set').onclick=function(){ var i=document.getElementById('r_amt'); var v=parseFloat(i&&i.value); if(isNaN(v)||v<0)return App.toast('Enter the current amount',true); adjustReagentSet(it.src, it.key, isCont()?{setContainers:v}:{setUnits:v}, 'set'); };
       return;
     }
     if(it.kind==='totalseq'){
@@ -631,6 +632,7 @@ window.INV = (function(){
         '<div class="seg unit-toggle" id="tg_'+id+'"><button class="on" data-u="unit">'+esc(x.unit||'unit')+'</button><button data-u="cont">'+contLabel+'</button></div>'+
         '<button class="btn btn-sm" data-take="'+id+'">Take out</button>'+
         '<button class="btn btn-sm" data-add="'+id+'">Add</button>'+
+        '<button class="btn btn-sm btn-ghost" data-set="'+id+'">Set</button>'+
         '<button class="btn btn-sm btn-ghost" data-resv="'+id+'">Reserve</button>'+
       '</div>'+
     '</div>';
@@ -664,6 +666,11 @@ window.INV = (function(){
       b.onclick=function(){ var id=b.getAttribute('data-add'); var x=map[id]; var v=parseFloat(document.getElementById('q_'+id).value)||0; if(v<=0) return App.toast('Enter an amount', true);
         var d=reagentDelta(x, modeIsContainer(id), v, 1);
         adjustReagentDual(s.src, id, d.unitDelta, d.containerDelta, 'add'); };
+    });
+    Array.prototype.forEach.call(elContent.querySelectorAll('[data-set]'),function(b){
+      b.onclick=function(){ var id=b.getAttribute('data-set'); var v=parseFloat(document.getElementById('q_'+id).value); if(isNaN(v)||v<0) return App.toast('Enter the current amount', true);
+        var set = modeIsContainer(id) ? {setContainers:v} : {setUnits:v};
+        adjustReagentSet(s.src, id, set, 'set'); };
     });
     Array.prototype.forEach.call(elContent.querySelectorAll('[data-resv]'),function(b){
       b.onclick=function(){ var x=map[b.getAttribute('data-resv')]; openReserveForm({category:s.sheet, itemKey:x.itemId, unit:x.unit, name:x.name}); };
@@ -863,6 +870,14 @@ window.INV = (function(){
     var msg = (unitDelta||containerDelta) ? ((unitDelta<0||containerDelta<0)?'Removed':'Added') : 'Updated';
     API.post({ action:'adjustReagent', sheet:sheet, itemKey:key, unitDelta:unitDelta, containerDelta:containerDelta, reason:reason||'', experiment:exp||'', by:who() })
       .then(afterWrite(msg));
+  }
+  function adjustReagentSet(src, key, setObj, reason){
+    var sheet = src==='reagents'?'Reagents & Supplies':src==='oligos'?'Oligos':'Antibodies';
+    busy(true);
+    var payload = { action:'adjustReagent', sheet:sheet, itemKey:key, reason:reason||'set', by:who() };
+    if(setObj.setUnits!=null) payload.setUnits=setObj.setUnits;
+    if(setObj.setContainers!=null) payload.setContainers=setObj.setContainers;
+    API.post(payload).then(afterWrite('Set to '+fmt(setObj.setUnits!=null?setObj.setUnits:setObj.setContainers)));
   }
   function adjust10x(mode, cat, lot, amount, exp){
     if(amount<=0) return App.toast('Enter an amount', true);

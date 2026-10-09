@@ -348,11 +348,15 @@ async function adjustReagent(env, token, b){
   let units=cleanNum(r[h['On hand (units)']]); if(units==null) units=0;
   let cont=cleanNum(r[h['On hand (containers)']]); if(cont==null) cont=0;
   const ud=Number(b.unitDelta)||0, cd=Number(b.containerDelta)||0;
-  units = Math.max(0, units+ud);
-  cont  = Math.max(0, cont+cd);
+  const hasSetU = (b.setUnits!=null && b.setUnits!==''), hasSetC = (b.setContainers!=null && b.setContainers!=='');
+  const beforeU=units;
+  units = hasSetU ? Math.max(0, Number(b.setUnits)||0) : Math.max(0, units+ud);
+  cont  = hasSetC ? Math.max(0, Number(b.setContainers)||0) : Math.max(0, cont+cd);
   await sheetsUpdate(env, token, "'"+sheet+"'!"+colLetter(h['On hand (units)'])+row, [units]);
   if(h['On hand (containers)']!=null) await sheetsUpdate(env, token, "'"+sheet+"'!"+colLetter(h['On hand (containers)'])+row, [cont]);
-  const parts=[]; if(ud) parts.push((ud<0?'':'+')+ud+' '+(r[h['Unit']]||'u')); if(cd) parts.push((cd<0?'':'+')+cd+' '+(r[h['Container']]||'cont'));
+  const parts=[];
+  if(hasSetU) parts.push('set '+units+' '+(r[h['Unit']]||'u')); else if(ud) parts.push((ud<0?'':'+')+ud+' '+(r[h['Unit']]||'u'));
+  if(hasSetC) parts.push('set '+cont+' '+(r[h['Container']]||'cont')); else if(cd) parts.push((cd<0?'':'+')+cd+' '+(r[h['Container']]||'cont'));
   await logMovement(env, token, { category:sheet, item_key:b.itemKey, lot:'', item_name:(r[h['Item']]||''),
     change:parts.join(', '), unit:(r[h['Unit']]||''),
     new_on_hand:units, reason:b.reason||'', experiment:b.experiment||'', by:b.by||'' });
