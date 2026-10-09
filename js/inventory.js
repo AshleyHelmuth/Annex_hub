@@ -647,8 +647,13 @@ window.INV = (function(){
   }
   function wireReagentControls(s){
     var map={}; (data[s.src]||[]).forEach(function(x){ map[x.itemId]=x; });
+    // read the amount + mode from WITHIN a given row (never a page-wide id — ids can repeat)
+    function rowOf(b){ return b.closest('.irow'); }
+    function amtOf(row){ var inp=row&&row.querySelector('input.qv'); return inp?parseFloat(inp.value):NaN; }
+    function isContainerRow(row){ var on=row&&row.querySelector('.unit-toggle button.on'); return !!(on && on.getAttribute('data-u')==='cont'); }
+    // stepper +/- operate on their own row's input
     Array.prototype.forEach.call(elContent.querySelectorAll('[data-adj]'),function(b){
-      b.onclick=function(){ var p=b.getAttribute('data-adj').split('|'); var i=document.getElementById('q_'+p[0]); var v=parseFloat(i.value)||0; v+=parseFloat(p[1]); if(v<0)v=0; i.value=Math.round(v*100)/100; };
+      b.onclick=function(){ var step=parseFloat(b.getAttribute('data-adj').split('|')[1]); var i=rowOf(b).querySelector('input.qv'); var v=parseFloat(i.value)||0; v+=step; if(v<0)v=0; i.value=Math.round(v*100)/100; };
     });
     // unit/container toggle
     Array.prototype.forEach.call(elContent.querySelectorAll('.unit-toggle'),function(tg){
@@ -656,20 +661,19 @@ window.INV = (function(){
         bt.onclick=function(){ Array.prototype.forEach.call(tg.querySelectorAll('button'),function(x){x.classList.remove('on');}); bt.classList.add('on'); };
       });
     });
-    function modeIsContainer(id){ var tg=document.getElementById('tg_'+id); var on=tg&&tg.querySelector('button.on'); return !!(on && on.getAttribute('data-u')==='cont'); }
     Array.prototype.forEach.call(elContent.querySelectorAll('[data-take]'),function(b){
-      b.onclick=function(){ var id=b.getAttribute('data-take'); var x=map[id]; var v=parseFloat(document.getElementById('q_'+id).value)||0; if(v<=0) return App.toast('Enter an amount', true);
-        var d=reagentDelta(x, modeIsContainer(id), v, -1);
+      b.onclick=function(){ var id=b.getAttribute('data-take'); var x=map[id]; var row=rowOf(b); var v=amtOf(row); if(isNaN(v)||v<=0) return App.toast('Enter an amount', true);
+        var d=reagentDelta(x, isContainerRow(row), v, -1);
         adjustReagentDual(s.src, id, d.unitDelta, d.containerDelta, 'take out'); };
     });
     Array.prototype.forEach.call(elContent.querySelectorAll('[data-add]'),function(b){
-      b.onclick=function(){ var id=b.getAttribute('data-add'); var x=map[id]; var v=parseFloat(document.getElementById('q_'+id).value)||0; if(v<=0) return App.toast('Enter an amount', true);
-        var d=reagentDelta(x, modeIsContainer(id), v, 1);
+      b.onclick=function(){ var id=b.getAttribute('data-add'); var x=map[id]; var row=rowOf(b); var v=amtOf(row); if(isNaN(v)||v<=0) return App.toast('Enter an amount', true);
+        var d=reagentDelta(x, isContainerRow(row), v, 1);
         adjustReagentDual(s.src, id, d.unitDelta, d.containerDelta, 'add'); };
     });
     Array.prototype.forEach.call(elContent.querySelectorAll('[data-set]'),function(b){
-      b.onclick=function(){ var id=b.getAttribute('data-set'); var v=parseFloat(document.getElementById('q_'+id).value); if(isNaN(v)||v<0) return App.toast('Enter the current amount', true);
-        var set = modeIsContainer(id) ? {setContainers:v} : {setUnits:v};
+      b.onclick=function(){ var id=b.getAttribute('data-set'); var row=rowOf(b); var v=amtOf(row); if(isNaN(v)||v<0) return App.toast('Enter the current amount', true);
+        var set = isContainerRow(row) ? {setContainers:v} : {setUnits:v};
         adjustReagentSet(s.src, id, set, 'set'); };
     });
     Array.prototype.forEach.call(elContent.querySelectorAll('[data-resv]'),function(b){
