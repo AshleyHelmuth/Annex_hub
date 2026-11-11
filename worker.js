@@ -43,6 +43,14 @@ export default {
         return json({ ok:false, error:String(e && e.message || e) }, 500);
       }
     }
+    if (url.pathname === '/api/events') {
+      try {
+        if (request.method === 'POST') return json(await eventsApi(request, env));
+        return json({ ok:false, error:'method_not_allowed' }, 405);
+      } catch (e) {
+        return json({ ok:false, error:String(e && e.message || e) }, 500);
+      }
+    }
     if (url.pathname === '/api/experiments') {
       try {
         if (request.method === 'GET')  return json(await listExperiments(env));
@@ -205,6 +213,41 @@ async function postExperiment(request, env){
 
 /* ---------- Google Calendar (equipment booking) ---------- */
 const CAL_API='https://www.googleapis.com/calendar/v3';
+
+// list upcoming bookings across the given calendars, or delete one event
+async function eventsApi(request, env){
+  if(!env.GOOGLE_SA_KEY) return { ok:false, error:'not_configured' };
+  const b=await request.json(); const token=await getAccessToken(env); const enc=encodeURIComponent;
+  if(b.action==='delete'){
+    const calId=String(b.calendarId||'').replace(/%40/gi,'@').trim(); const eventId=(b.eventId||'').trim();
+    if(!calId||!eventId) return { ok:false, error:'missing_event' };
+    const r=await fetch(`${CAL_API}/calendars/${enc(calId)}/events/${enc(eventId)}`, { method:'DELETE', headers:{ authorization:'Bearer '+token } });
+    if(r.status===204||r.status===200) return { ok:true };
+    let msg='delete_failed_'+r.status; try{ const d=await r.json(); if(d&&d.error) msg='calendar_delete: '+d.error.message; }catch(e){}
+    return { ok:false, error:msg };
+  }
+  // list
+  const cals=Array.isArray(b.calendars)?b.calendars:[];
+  const days=Math.min(Math.max(Number(b.days)||30,1),120);
+  const now=new Date();
+  const timeMin=now.toISOString();
+  const timeMax=new Date(now.getTime()+days*86400000).toISOString();
+  const results=await Promise.all(cals.map(async function(c){
+    const calId=String(c.id||c.cal||'').replace(/%40/gi,'@').trim(); if(!calId) return [];
+    const url=`${CAL_API}/calendars/${enc(calId)}/events?singleEvents=true&orderBy=startTime&timeMin=${enc(timeMin)}&timeMax=${enc(timeMax)}&maxResults=100`;
+    try{
+      const r=await fetch(url, { headers:{ authorization:'Bearer '+token } });
+      const d=await r.json(); if(d.error) return [];
+      return (d.items||[]).filter(function(ev){ return ev.status!=='cancelled' && ev.start && ev.start.dateTime; }).map(function(ev){
+        return { calendarId:calId, equipment:c.name||'', eventId:ev.id, summary:ev.summary||'',
+          start:ev.start.dateTime, end:(ev.end&&ev.end.dateTime)||'', description:ev.description||'' };
+      });
+    }catch(e){ return []; }
+  }));
+  const merged=[].concat.apply([], results).sort(function(a,c){ return String(a.start).localeCompare(String(c.start)); });
+  return { ok:true, events:merged };
+}
+
 async function bookEvent(request, env){
   if(!env.GOOGLE_SA_KEY) return { ok:false, error:'not_configured' };
   const b = await request.json();

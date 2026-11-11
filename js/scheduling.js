@@ -65,6 +65,11 @@ window.Scheduling = (function(){
         '<div id="sch_results"></div>'+
       '</div>'+
       '<div class="panel">'+
+        '<div class="page-head" style="margin-bottom:8px"><div><h2>Upcoming bookings</h2><div class="sub">Next 30 days — delete a reservation you need to remove.</div></div>'+
+          '<button class="btn btn-sm" id="sch_bkrefresh">↻ Refresh</button></div>'+
+        '<div id="sch_bookings"><div class="hint">Loading…</div></div>'+
+      '</div>'+
+      '<div class="panel">'+
         '<div class="page-head" style="margin-bottom:8px"><div><h2>All equipment calendars</h2><div class="sub">Every instrument overlaid in one view.</div></div>'+
           '<button class="btn btn-sm" id="sch_refresh">↻ Refresh</button></div>'+
         '<div class="sch-legend">'+EQUIPMENT.map(function(e){return '<span class="lg"><span class="sw" style="background:'+e.color+'"></span>'+esc(e.name)+'</span>';}).join('')+'</div>'+
@@ -77,7 +82,54 @@ window.Scheduling = (function(){
     document.getElementById('sch_none').onclick=function(){ toggleAll(false); };
     document.getElementById('sch_book').onclick=bookSelected;
     document.getElementById('sch_refresh').onclick=function(){ var f=document.getElementById('sch_iframe'); f.src=f.src; };
+    document.getElementById('sch_bkrefresh').onclick=loadBookings;
     checkConfigured();
+    loadBookings();
+  }
+
+  function loadBookings(){
+    var host=document.getElementById('sch_bookings'); if(host) host.innerHTML='<div class="hint">Loading…</div>';
+    var cals=EQUIPMENT.map(function(e){ return { id:normCal(e.cal), name:e.name }; });
+    fetch('/api/events', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ action:'list', calendars:cals, days:30 }) })
+      .then(function(r){return r.json();}).then(function(d){
+        if(!d||!d.ok){ if(host) host.innerHTML='<div class="hint">'+esc((d&&d.error)||'Could not load bookings')+'</div>'; return; }
+        renderBookings(d.events||[]);
+      }).catch(function(){ if(host) host.innerHTML='<div class="hint">Could not load bookings.</div>'; });
+  }
+  function colorFor(name){ var e=EQUIPMENT.filter(function(x){return x.name===name;})[0]; return e?e.color:'#888'; }
+  function fmtDate(iso){ try{ return new Date(iso).toLocaleDateString(undefined,{month:'short',day:'numeric'}); }catch(e){ return iso; } }
+  function bookedBy(desc){ var m=(desc||'').match(/Booked by:\s*(.+)/i); return m?m[1].trim():''; }
+  function renderBookings(events){
+    var host=document.getElementById('sch_bookings'); if(!host) return;
+    if(!events.length){ host.innerHTML='<div class="empty">No bookings in the next 30 days.</div>'; return; }
+    host.innerHTML=events.map(function(ev,i){
+      var by=bookedBy(ev.description);
+      return '<div class="bk-row">'+
+        '<span class="sw" style="background:'+colorFor(ev.equipment)+'"></span>'+
+        '<div class="bk-main"><div class="bk-top"><b>'+esc(ev.equipment)+'</b> <span class="bk-when">'+esc(fmtDate(ev.start))+' · '+esc(fmtT(ev.start))+(ev.end?('–'+esc(fmtT(ev.end))):'')+'</span></div>'+
+          '<div class="bk-sum">'+esc(ev.summary||'')+(by?(' · '+esc(by)):'')+'</div></div>'+
+        '<button class="btn btn-sm btn-danger" data-del="'+i+'">Delete</button>'+
+      '</div>';
+    }).join('');
+    Array.prototype.forEach.call(host.querySelectorAll('[data-del]'),function(b){
+      b.onclick=function(){ confirmDelete(events[+b.getAttribute('data-del')]); };
+    });
+  }
+  function confirmDelete(ev){
+    if(!ev) return; var by=bookedBy(ev.description);
+    var msg=ev.equipment+' · '+fmtDate(ev.start)+' '+fmtT(ev.start)+(ev.summary?('\n'+ev.summary):'')+(by?('\nBooked by '+by):'');
+    if(window.App && App.drawer){
+      App.drawer('Delete booking', '<p style="margin:0 0 16px;white-space:pre-line">Delete this booking?\n\n'+esc(msg)+'</p><div class="row-actions"><button class="btn" id="bk_no">Back</button><button class="btn btn-danger" id="bk_yes">Delete</button></div>');
+      document.getElementById('bk_no').onclick=function(){ App.closeDrawer(); };
+      document.getElementById('bk_yes').onclick=function(){ App.closeDrawer(); doDelete(ev); };
+    } else { doDelete(ev); }
+  }
+  function doDelete(ev){
+    fetch('/api/events', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ action:'delete', calendarId:ev.calendarId, eventId:ev.eventId }) })
+      .then(function(r){return r.json();}).then(function(d){
+        if(d&&d.ok){ toast('Booking deleted'); loadBookings(); var f=document.getElementById('sch_iframe'); if(f) f.src=f.src; }
+        else { toast('Error: '+((d&&d.error)||'could not delete'), true); }
+      }).catch(function(){ toast('Network error', true); });
   }
   function toggleAll(on){ Array.prototype.forEach.call(document.querySelectorAll('.eq-chk'),function(c){ c.checked=on; }); }
 
@@ -133,7 +185,7 @@ window.Scheduling = (function(){
     });
     html+='</div>';
     res.innerHTML=html;
-    if(okN){ var f=document.getElementById('sch_iframe'); if(f) f.src=f.src; toast('Booked '+okN+' instrument'+(okN===1?'':'s')); }
+    if(okN){ var f=document.getElementById('sch_iframe'); if(f) f.src=f.src; toast('Booked '+okN+' instrument'+(okN===1?'':'s')); loadBookings(); }
     // wire "Book anyway"
     Array.prototype.forEach.call(res.querySelectorAll('[data-force]'),function(btn){
       btn.onclick=function(){

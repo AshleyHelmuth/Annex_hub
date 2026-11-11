@@ -250,3 +250,12 @@ table.bulk{border-collapse:collapse;min-width:100%}
 .ax-benches{padding:4px 0 2px}
 .ax-benches .ax-check{padding:6px 0}
 .ax-space{font-size:13px;color:var(--teal-d);font-weight:500;margin:2px 0}
+
+/* Upcoming bookings list */
+#sch_bookings{max-height:340px;overflow:auto}
+.bk-row{display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid #EEF3F1}
+.bk-row:last-child{border-bottom:none}
+.bk-main{flex:1;min-width:0}
+.bk-top{font-size:14.5px}
+.bk-when{font-family:var(--mono);font-size:12.5px;color:var(--teal-d);margin-left:4px}
+.bk-sum{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
