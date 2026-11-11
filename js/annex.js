@@ -53,6 +53,8 @@ window.Annex = (function(){
       '</details>'+
       '<div class="page-head" style="margin:4px 0 8px"><div><h2>Upcoming experiments</h2><div class="sub" id="ax_listsub">Soonest first.</div></div><button class="btn btn-sm" id="ax_refresh">↻ Refresh</button></div>'+
       '<div id="ax_list"><div class="hint">Loading…</div></div>'+
+      '<details class="group" id="pastWrap" style="margin-top:12px"><summary><span class="caret">▸</span><span class="g-title">Past experiments</span><span class="g-meta" id="ax_pastcount"></span></summary>'+
+        '<div style="padding:12px 14px" id="ax_pastlist"></div></details>'+
       '<div class="page-head" style="margin:16px 0 8px"><div><h2>Calendar summary</h2><div class="sub">Days with experiments are marked; solid = whole space.</div></div></div>'+
       '<div class="panel" id="ax_cal"></div>'+
     '</div>';
@@ -68,7 +70,7 @@ window.Annex = (function(){
       if(d && d.configured===false){ document.getElementById('annexMsg').innerHTML='<div class="error-box">Not connected to the live sheet yet (GOOGLE_SA_KEY / INVENTORY_SHEET_ID). Scheduling will work once those are set.</div>'; }
       else { document.getElementById('annexMsg').innerHTML=''; }
       data=(d&&d.experiments||[]).filter(function(x){return x.status!=='cancelled';});
-      renderList(); renderCal();
+      renderList(); renderPast(); renderCal();
     }).catch(function(){ document.getElementById('ax_list').innerHTML='<div class="error-box">Couldn\u2019t load experiments.</div>'; });
   }
 
@@ -108,23 +110,32 @@ window.Annex = (function(){
     } else { if(sub) sub.textContent='Soonest first.'; }
     list.sort(function(a,b){ return (a.startDate+(a.startTime||'')).localeCompare(b.startDate+(b.startTime||'')); });
     if(!list.length){ host.innerHTML='<div class="empty">'+(filterDay?'No experiments on this day.':'No upcoming experiments scheduled.')+'</div>'; wireClearDay(); return; }
-    host.innerHTML=list.map(function(x){
-      return '<div class="ax-card'+(x.wholeSpace?' whole':'')+'">'+
-        '<div class="ax-main">'+
-          '<div class="ax-title">'+esc(x.name||x.experimentId||'(untitled)')+
-            (x.experimentId&&x.name?'<span class="key">'+esc(x.experimentId)+'</span>':'')+
-            (x.wholeSpace?'<span class="flag out">whole space</span>':'')+
-            (x.biohub?'<span class="flag lock">Biohub</span>':'')+'</div>'+
-          '<div class="ax-when">'+esc(fmtRange(x))+'</div>'+
-          '<div class="ax-meta">'+[x.project?('Project: '+esc(x.project)):'', x.operators?('Operators: '+esc(x.operators)):'', x.purpose?esc(x.purpose):''].filter(Boolean).join(' · ')+'</div>'+
-        '</div>'+
-        '<button class="btn btn-sm btn-danger" data-cancel="'+esc(x.entryId)+'">Cancel</button>'+
-      '</div>';
-    }).join('');
+    host.innerHTML=list.map(function(x){ return expCard(x, true); }).join('');
     Array.prototype.forEach.call(host.querySelectorAll('[data-cancel]'),function(b){
       b.onclick=function(){ cancelExp(b.getAttribute('data-cancel')); };
     });
     wireClearDay();
+  }
+  // shared experiment card; withCancel adds the Cancel action (upcoming only)
+  function expCard(x, withCancel){
+    return '<div class="ax-card'+(x.wholeSpace?' whole':'')+'">'+
+      '<div class="ax-main">'+
+        '<div class="ax-title">'+esc(x.name||x.experimentId||'(untitled)')+
+          (x.experimentId&&x.name?'<span class="key">'+esc(x.experimentId)+'</span>':'')+
+          (x.wholeSpace?'<span class="flag out">whole space</span>':'')+
+          (x.biohub?'<span class="flag lock">Biohub</span>':'')+'</div>'+
+        '<div class="ax-when">'+esc(fmtRange(x))+'</div>'+
+        '<div class="ax-meta">'+[x.project?('Project: '+esc(x.project)):'', x.operators?('Operators: '+esc(x.operators)):'', x.purpose?esc(x.purpose):''].filter(Boolean).join(' · ')+'</div>'+
+      '</div>'+
+      (withCancel?'<button class="btn btn-sm btn-danger" data-cancel="'+esc(x.entryId)+'">Cancel</button>':'')+
+    '</div>';
+  }
+  function renderPast(){
+    var host=document.getElementById('ax_pastlist'); if(!host) return; var today=todayISO();
+    var past=data.filter(function(x){ return (x.endDate||x.startDate) < today; });
+    past.sort(function(a,b){ return (b.startDate+(b.startTime||'')).localeCompare(a.startDate+(a.startTime||'')); }); // most recent first
+    var cnt=document.getElementById('ax_pastcount'); if(cnt) cnt.textContent=past.length?(past.length+''):'';
+    host.innerHTML = past.length ? past.map(function(x){ return expCard(x, false); }).join('') : '<div class="empty">No past experiments yet.</div>';
   }
   function wireClearDay(){ var c=document.getElementById('ax_clearday'); if(c) c.onclick=function(){ filterDay=null; renderList(); renderCal(); }; }
 
