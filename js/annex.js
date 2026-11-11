@@ -5,6 +5,15 @@ window.Annex = (function(){
   var mounted=false;
   var editing=null;            // entryId currently being edited, or null
   var data=[];                 // active experiments
+  var BENCHES=[
+    { id:'Bench 1', desc:'next to TC hoods' },
+    { id:'Bench 2', desc:'pre-PCR' },
+    { id:'Bench 3', desc:'post-PCR' },
+    { id:'Bench 4', desc:'post-PCR' }
+  ];
+  function benchDesc(id){ var b=BENCHES.filter(function(x){return x.id===id;})[0]; return b?b.desc:''; }
+  function prettyBenches(str){ return (str||'').split(/;\s*/).map(function(s){return s.trim();}).filter(Boolean)
+    .map(function(id){ var d=benchDesc(id); return id+(d?(' ('+d+')'):''); }).join(', '); }
   var calMonth=firstOfMonth(new Date());
   var filterDay=null;          // ISO string when a calendar day is selected
 
@@ -31,7 +40,7 @@ window.Annex = (function(){
 
   function renderShell(host){
     host.innerHTML='<div class="content">'+
-      '<div class="page-head"><div><h1>Annex usage</h1><div class="sub">Schedule an experiment in the Annex space and see what\u2019s coming up.</div></div></div>'+
+      '<div class="page-head"><div><h1>Annex usage</h1><div class="sub">Plan an experiment and flag the Annex space it needs \u2014 a heads-up for others, not an exclusive lock.</div></div></div>'+
       '<div id="annexMsg"></div>'+
       '<details class="group" id="expFormWrap"><summary><span class="caret">▸</span><span class="g-title" id="ax_formtitle">＋ Schedule an experiment</span></summary>'+
         '<div style="padding:14px">'+
@@ -44,9 +53,13 @@ window.Annex = (function(){
           '<div class="field"><label>End date</label><input id="ax_ed" type="date"></div></div>'+
           '<div class="grid2"><div class="field"><label>Start time</label><input id="ax_st" type="time"></div>'+
           '<div class="field"><label>End time</label><input id="ax_et" type="time"></div></div>'+
-          '<div class="grid2">'+
-            '<label class="ax-check"><input type="checkbox" id="ax_biohub"> Affiliated with Biohub</label>'+
-            '<label class="ax-check"><input type="checkbox" id="ax_whole"> Entire space needed</label>'+
+          '<label class="ax-check"><input type="checkbox" id="ax_biohub"> Affiliated with Biohub</label>'+
+          '<div class="field"><label>Space needed</label>'+
+            '<label class="ax-check"><input type="checkbox" id="ax_whole"> Whole Annex (entire space)</label>'+
+            '<div id="ax_benchwrap" class="ax-benches">'+
+              '<div class="hint" style="margin:2px 0 6px">Or just the bench(es) you need — others can still slip in to use the rest:</div>'+
+              BENCHES.map(function(bn){ return '<label class="ax-check"><input type="checkbox" class="ax-bench" value="'+esc(bn.id)+'"> '+esc(bn.id)+' <span class="eq-note">('+esc(bn.desc)+')</span></label>'; }).join('')+
+            '</div>'+
           '</div>'+
           '<div class="grid2"><div class="field"><label>Your name</label><input id="ax_who" placeholder="e.g. Ashley Helmuth" value="'+esc(who())+'"></div><div></div></div>'+
           '<div class="row-actions"><button class="btn btn-primary" id="ax_add">Add experiment</button>'+
@@ -57,13 +70,14 @@ window.Annex = (function(){
       '<div id="ax_list"><div class="hint">Loading…</div></div>'+
       '<details class="group" id="pastWrap" style="margin-top:12px"><summary><span class="caret">▸</span><span class="g-title">Past experiments</span><span class="g-meta" id="ax_pastcount"></span></summary>'+
         '<div style="padding:12px 14px" id="ax_pastlist"></div></details>'+
-      '<div class="page-head" style="margin:16px 0 8px"><div><h2>Calendar summary</h2><div class="sub">Days with experiments are marked; solid = whole space.</div></div></div>'+
+      '<div class="page-head" style="margin:16px 0 8px"><div><h2>Calendar summary</h2><div class="sub">Days with experiments are marked; solid red = whole Annex needed.</div></div></div>'+
       '<div class="panel" id="ax_cal"></div>'+
     '</div>';
     document.getElementById('ax_who').onchange=function(){ setWho(this.value.trim()); };
     document.getElementById('ax_add').onclick=submitExperiment;
     document.getElementById('ax_canceledit').onclick=cancelEdit;
     document.getElementById('ax_refresh').onclick=load;
+    document.getElementById('ax_whole').onchange=toggleBench;
     // default start date = today
     var sd=document.getElementById('ax_sd'); if(sd) sd.value=todayISO();
   }
@@ -90,7 +104,8 @@ window.Annex = (function(){
       project:(document.getElementById('ax_proj').value||'').trim(), operators:(document.getElementById('ax_ops').value||'').trim(),
       purpose:(document.getElementById('ax_purpose').value||'').trim(), startDate:sd, endDate:ed,
       startTime:(document.getElementById('ax_st').value||'').trim(), endTime:(document.getElementById('ax_et').value||'').trim(),
-      biohub:document.getElementById('ax_biohub').checked, wholeSpace:document.getElementById('ax_whole').checked, by:who() };
+      biohub:document.getElementById('ax_biohub').checked, wholeSpace:document.getElementById('ax_whole').checked,
+      benches:(document.getElementById('ax_whole').checked ? '' : selectedBenches().join('; ')), by:who() };
     fetch('/api/experiments', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body) })
       .then(function(r){return r.json();}).then(function(d){
         btn.disabled=false;
@@ -106,6 +121,7 @@ window.Annex = (function(){
     set('ax_purpose',x.purpose); set('ax_sd',x.startDate); set('ax_ed',(x.endDate&&x.endDate!==x.startDate)?x.endDate:''); 
     set('ax_st',x.startTime); set('ax_et',x.endTime);
     document.getElementById('ax_biohub').checked=!!x.biohub; document.getElementById('ax_whole').checked=!!x.wholeSpace;
+    setBenchChecks((x.benches||'').split(/;\s*/).map(function(s){return s.trim();}).filter(Boolean)); toggleBench();
     document.getElementById('ax_add').textContent='Save changes';
     document.getElementById('ax_canceledit').style.display='';
     var ft=document.getElementById('ax_formtitle'); if(ft) ft.textContent='Edit experiment · '+(x.name||x.experimentId||'');
@@ -121,7 +137,15 @@ window.Annex = (function(){
   function clearForm(){
     ['ax_id','ax_name','ax_proj','ax_ops','ax_purpose','ax_ed','ax_st','ax_et'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; });
     document.getElementById('ax_biohub').checked=false; document.getElementById('ax_whole').checked=false;
+    setBenchChecks([]); toggleBench();
     var sd=document.getElementById('ax_sd'); if(sd) sd.value=todayISO();
+  }
+  function selectedBenches(){ var out=[]; Array.prototype.forEach.call(document.querySelectorAll('.ax-bench'),function(cb){ if(cb.checked) out.push(cb.value); }); return out; }
+  function setBenchChecks(list){ Array.prototype.forEach.call(document.querySelectorAll('.ax-bench'),function(cb){ cb.checked=list.indexOf(cb.value)>=0; }); }
+  function toggleBench(){
+    var whole=document.getElementById('ax_whole').checked;
+    var wrap=document.getElementById('ax_benchwrap'); if(wrap) wrap.style.opacity=whole?'0.4':'';
+    Array.prototype.forEach.call(document.querySelectorAll('.ax-bench'),function(cb){ cb.disabled=whole; });
   }
 
   function renderList(){
@@ -149,9 +173,10 @@ window.Annex = (function(){
       '<div class="ax-main">'+
         '<div class="ax-title">'+esc(x.name||x.experimentId||'(untitled)')+
           (x.experimentId&&x.name?'<span class="key">'+esc(x.experimentId)+'</span>':'')+
-          (x.wholeSpace?'<span class="flag out">whole space</span>':'')+
+          (x.wholeSpace?'<span class="flag out">Whole Annex</span>':'')+
           (x.biohub?'<span class="flag lock">Biohub</span>':'')+'</div>'+
         '<div class="ax-when">'+esc(fmtRange(x))+'</div>'+
+        (!x.wholeSpace && x.benches?'<div class="ax-space">Space: '+esc(prettyBenches(x.benches))+'</div>':'')+
         '<div class="ax-meta">'+[x.project?('Project: '+esc(x.project)):'', x.operators?('Operators: '+esc(x.operators)):'', x.purpose?esc(x.purpose):''].filter(Boolean).join(' · ')+'</div>'+
       '</div>'+
       (withCancel?'<div class="ax-actions"><button class="btn btn-sm" data-edit="'+esc(x.entryId)+'">Edit</button>'+

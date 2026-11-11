@@ -115,7 +115,7 @@ async function importPrivateKey(pem){
 
 /* ---------- Annex Usage: experiment scheduling (own sheet tab) ---------- */
 const EXP_SHEET='Annex Experiments';
-const EXP_HEADERS=['entry_id','experiment_id','experiment_name','project','biohub','operators','purpose','start_date','end_date','start_time','end_time','whole_space','status','created_by','created_at'];
+const EXP_HEADERS=['entry_id','experiment_id','experiment_name','project','biohub','operators','purpose','start_date','end_date','start_time','end_time','whole_space','benches','status','created_by','created_at'];
 async function getSheetTitles(env, token){
   const r=await fetch(`${API}/${env.INVENTORY_SHEET_ID}?fields=sheets.properties.title`, { headers:{ authorization:'Bearer '+token } });
   const d=await r.json(); if(d.error) throw new Error('meta: '+d.error.message);
@@ -123,13 +123,24 @@ async function getSheetTitles(env, token){
 }
 async function ensureExpSheet(env, token){
   const titles=await getSheetTitles(env, token);
-  if(titles.includes(EXP_SHEET)) return;
-  const addRes=await fetch(`${API}/${env.INVENTORY_SHEET_ID}:batchUpdate`, {
-    method:'POST', headers:{ authorization:'Bearer '+token, 'content-type':'application/json' },
-    body: JSON.stringify({ requests:[{ addSheet:{ properties:{ title:EXP_SHEET } } }] })
-  });
-  const ad=await addRes.json(); if(ad.error) throw new Error('addSheet: '+ad.error.message);
-  await sheetsUpdate(env, token, "'"+EXP_SHEET+"'!A1", EXP_HEADERS);
+  if(!titles.includes(EXP_SHEET)){
+    const addRes=await fetch(`${API}/${env.INVENTORY_SHEET_ID}:batchUpdate`, {
+      method:'POST', headers:{ authorization:'Bearer '+token, 'content-type':'application/json' },
+      body: JSON.stringify({ requests:[{ addSheet:{ properties:{ title:EXP_SHEET } } }] })
+    });
+    const ad=await addRes.json(); if(ad.error) throw new Error('addSheet: '+ad.error.message);
+    await sheetsUpdate(env, token, "'"+EXP_SHEET+"'!A1", EXP_HEADERS);
+    return;
+  }
+  // sheet exists — make sure every expected column is present (adds new ones like 'benches')
+  const g=await sheetsBatchGet(env, token, ["'"+EXP_SHEET+"'!A1:Z1"]);
+  const existing=((g["'"+EXP_SHEET+"'!A1:Z1"]||[[]])[0]||[]).map(x=>String(x==null?'':x).trim());
+  const have={}; existing.forEach(x=>{ if(x) have[x]=1; });
+  const missing=EXP_HEADERS.filter(h=>!have[h]);
+  if(missing.length){
+    const newRow=existing.slice(); missing.forEach(m=>newRow.push(m));
+    await sheetsUpdate(env, token, "'"+EXP_SHEET+"'!A1", newRow);
+  }
 }
 async function listExperiments(env){
   if(!cfg(env)) return { ok:true, configured:false, experiments:[] };
@@ -145,7 +156,7 @@ async function listExperiments(env){
       biohub:yes(r[h['biohub']]), operators:(r[h['operators']]||'').toString(), purpose:(r[h['purpose']]||'').toString(),
       startDate:cleanDate(r[h['start_date']]), endDate:cleanDate(r[h['end_date']]),
       startTime:(r[h['start_time']]||'').toString(), endTime:(r[h['end_time']]||'').toString(),
-      wholeSpace:yes(r[h['whole_space']]), status:(r[h['status']]||'active').toString().toLowerCase(),
+      wholeSpace:yes(r[h['whole_space']]), benches:(r[h['benches']]||'').toString(), status:(r[h['status']]||'active').toString().toLowerCase(),
       by:(r[h['created_by']]||'').toString(), row:i+1 });
   }
   return { ok:true, configured:true, experiments:out };
@@ -162,6 +173,7 @@ async function postExperiment(request, env){
   if(b.action==='update'){
     if(!(b.name||'').trim() && !(b.experimentId||'').trim()) return { ok:false, error:'missing_name' };
     if(!(b.startDate||'').trim()) return { ok:false, error:'missing_date' };
+    await ensureExpSheet(env, token);
     const g=await sheetsBatchGet(env, token, ["'"+EXP_SHEET+"'!A1:Z5000"]); const v=g["'"+EXP_SHEET+"'!A1:Z5000"]||[]; const h=hindex(v);
     const idx=findRow(v, 0, b.entryId); if(idx<0) return { ok:false, error:'not_found' };
     const r=v[idx]; const headerLen=(v[0]||[]).length;
@@ -170,7 +182,7 @@ async function postExperiment(request, env){
     put('experiment_id',b.experimentId||''); put('experiment_name',b.name||''); put('project',b.project||'');
     put('biohub', b.biohub?'yes':'no'); put('operators',b.operators||''); put('purpose',b.purpose||'');
     put('start_date',b.startDate||''); put('end_date',b.endDate||b.startDate||''); put('start_time',b.startTime||''); put('end_time',b.endTime||'');
-    put('whole_space', b.wholeSpace?'yes':'no');
+    put('whole_space', b.wholeSpace?'yes':'no'); put('benches', b.benches||'');
     await sheetsUpdate(env, token, "'"+EXP_SHEET+"'!A"+(idx+1)+":"+colLetter(headerLen-1)+(idx+1), row);
     return { ok:true, entryId:b.entryId };
   }
@@ -186,7 +198,7 @@ async function postExperiment(request, env){
   put('entry_id',entryId); put('experiment_id',b.experimentId||''); put('experiment_name',b.name||''); put('project',b.project||'');
   put('biohub', b.biohub?'yes':'no'); put('operators',b.operators||''); put('purpose',b.purpose||'');
   put('start_date',b.startDate||''); put('end_date',b.endDate||b.startDate||''); put('start_time',b.startTime||''); put('end_time',b.endTime||'');
-  put('whole_space', b.wholeSpace?'yes':'no'); put('status','active'); put('created_by',b.by||''); put('created_at', nowISO());
+  put('whole_space', b.wholeSpace?'yes':'no'); put('benches', b.benches||''); put('status','active'); put('created_by',b.by||''); put('created_at', nowISO());
   await sheetsAppend(env, token, EXP_SHEET, row);
   return { ok:true, entryId };
 }

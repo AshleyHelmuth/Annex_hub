@@ -246,3 +246,7 @@ table.bulk{border-collapse:collapse;min-width:100%}
 
 .ax-actions{display:flex;flex-direction:column;gap:6px;flex:none}
 @media (max-width:759px){ .ax-actions{flex-direction:row} }
+
+.ax-benches{padding:4px 0 2px}
+.ax-benches .ax-check{padding:6px 0}
+.ax-space{font-size:13px;color:var(--teal-d);font-weight:500;margin:2px 0}
