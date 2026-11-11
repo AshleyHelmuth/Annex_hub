@@ -6,18 +6,23 @@ window.Scheduling = (function(){
   // Equipment -> its Google group calendar id, colour, and default reservation window.
   // (Same calendars/colours as the singlecell-planner. Tapestation is walk-up: no reservation.)
   var EQUIPMENT=[
-    { name:'BSC1',                   cal:'fe7836fa02ee2dbf37165fb6342df868b6878766c4212182925d5296cdddec52@group.calendar.google.com', color:'#1f7a7a', start:'07:00', end:'22:00' },
-    { name:'BSC2',                   cal:'fa259394976287b42162f6bae0794beb7fd80178cdd1f075f2383f76f3eb9525@group.calendar.google.com', color:'#2f7d53', start:'07:00', end:'22:00' },
-    { name:'Chemical Hood',          cal:'1761540d25c59e44726fa9780cd8d35d889f4505525802b9133708d636655c13@group.calendar.google.com', color:'#8a6d1f', start:'09:00', end:'17:00' },
-    { name:'Swing Bucket Centrifuge',cal:'e6a9fe5cdee1eee46fe8f31ef6fd3495da881305b390862b5cdf017c17357a5d@group.calendar.google.com', color:'#b0611f', start:'07:00', end:'22:00' },
-    { name:'Table Centrifuge',       cal:'203a7d3f0e735031b57d97d28c421222c9624d345b67fd65f99c71f71dfcd444@group.calendar.google.com', color:'#a0742f', start:'07:00', end:'22:00' },
-    { name:'Sony Sorter',            cal:'1ad41eb20eb6b5f546119f6eb8da207d1274599276bcc224e8141325afc4346b@group.calendar.google.com', color:'#6b4fa3', start:'07:00', end:'17:00' },
-    { name:'Chromium X',             cal:'f6113753a09a8128a9612bdda61e105c93221f89fffa2ce38c8f74631b950ed0@group.calendar.google.com', color:'#2f5c8f', start:'10:00', end:'22:00' },
-    { name:'Thermocycler 1',         cal:'ac9d4e86a5b292de20497a7961f70875cc0ed4f206f65543a45f164e852c019c@group.calendar.google.com', color:'#5b6570', start:'10:00', end:'22:00' },
-    { name:'Thermocycler 2',         cal:'88f86d0eb68666076b01a1cd5830a5b58d23f288abbe14cb1f0cb542858448cc@group.calendar.google.com', color:'#7a5b8f', start:'10:00', end:'22:00' },
-    { name:'qPCR',         cal:'1cfb2d1153ef0369915d285904f6c344aa0caa4193a3d379ba763590838c159f%40group.calendar.google.com', color:'#7a5b8f', start:'10:00', end:'22:00' },
-    { name:'Tapestation',            cal:'1d8a15eb34be699ed8d28d9b3304dbcbc835e1fad452fb156b958cb21751f935@group.calendar.google.com', color:'#ab3939', noReserve:true }
+    { name:'BSC1',                      cal:'fe7836fa02ee2dbf37165fb6342df868b6878766c4212182925d5296cdddec52@group.calendar.google.com', color:'#1f7a7a', start:'07:00', end:'22:00' },
+    { name:'BSC2',                      cal:'fa259394976287b42162f6bae0794beb7fd80178cdd1f075f2383f76f3eb9525@group.calendar.google.com', color:'#2f7d53', start:'07:00', end:'22:00' },
+    { name:'RNA hood',                  cal:'cff1a5f3a88e14c99f2da2984451f6a4065b462e58e0c6e4f1a9261ef2879604@group.calendar.google.com', color:'#4f8f3a', start:'09:00', end:'17:00' },
+    { name:'Chemical Fume Hood',        cal:'1761540d25c59e44726fa9780cd8d35d889f4505525802b9133708d636655c13@group.calendar.google.com', color:'#8a6d1f', start:'09:00', end:'17:00' },
+    { name:'Swing Bucket Centrifuge',   cal:'e6a9fe5cdee1eee46fe8f31ef6fd3495da881305b390862b5cdf017c17357a5d@group.calendar.google.com', color:'#b0611f', start:'07:00', end:'22:00' },
+    { name:'Table Centrifuge',          cal:'203a7d3f0e735031b57d97d28c421222c9624d345b67fd65f99c71f71dfcd444@group.calendar.google.com', color:'#a0742f', start:'07:00', end:'22:00' },
+    { name:'Floor centrifuge',          cal:'b4f04e4daaed9185f2b0364d219553c0c63f742fcbed4477dfeadbf8b2d8d04b@group.calendar.google.com', color:'#7a4a2a', start:'07:00', end:'22:00' },
+    { name:'Sony Sorter',               cal:'1ad41eb20eb6b5f546119f6eb8da207d1274599276bcc224e8141325afc4346b@group.calendar.google.com', color:'#6b4fa3', start:'07:00', end:'17:00' },
+    { name:'Sony ID7000 Flow cytometer',cal:'af47c5a45c9020de2a1ae9ca69caa1aa645dcbb74e6009f37e2df413fb88aee5@group.calendar.google.com', color:'#4a4fa5', start:'09:00', end:'17:00' },
+    { name:'Chromium X',                cal:'f6113753a09a8128a9612bdda61e105c93221f89fffa2ce38c8f74631b950ed0@group.calendar.google.com', color:'#2f5c8f', start:'10:00', end:'22:00' },
+    { name:'Thermocycler 1',            cal:'ac9d4e86a5b292de20497a7961f70875cc0ed4f206f65543a45f164e852c019c@group.calendar.google.com', color:'#5b6570', start:'10:00', end:'22:00' },
+    { name:'Thermocycler 2',            cal:'88f86d0eb68666076b01a1cd5830a5b58d23f288abbe14cb1f0cb542858448cc@group.calendar.google.com', color:'#7a5b8f', start:'10:00', end:'22:00' },
+    { name:'qPCR',                      cal:'1cfb2d1153ef0369915d285904f6c344aa0caa4193a3d379ba763590838c159f@group.calendar.google.com', color:'#b03a6e', start:'10:00', end:'22:00' },
+    { name:'Cellaca',                   cal:'7b03186b560872a1f3b826de599b0993f82783b3e88f91d6ca960f8fd11f416f@group.calendar.google.com', color:'#c77f0e', start:'09:00', end:'17:00' },
+    { name:'Tapestation',               cal:'1d8a15eb34be699ed8d28d9b3304dbcbc835e1fad452fb156b958cb21751f935@group.calendar.google.com', color:'#ab3939', noReserve:true }
   ];
+  function normCal(id){ return String(id||'').replace(/%40/gi,'@').trim(); } // tolerate a pasted %40
   var mounted=false;
 
   function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
@@ -26,7 +31,7 @@ window.Scheduling = (function(){
   function todayISO(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
   function embedUrl(){
     var base='https://calendar.google.com/calendar/embed?ctz='+encodeURIComponent(TZ)+'&mode=WEEK&showTitle=0&showPrint=0&showTz=0&showCalendars=1&wkst=1';
-    EQUIPMENT.forEach(function(e){ base+='&src='+encodeURIComponent(e.cal)+'&color='+encodeURIComponent(e.color); });
+    EQUIPMENT.forEach(function(e){ base+='&src='+encodeURIComponent(normCal(e.cal))+'&color='+encodeURIComponent(e.color); });
     return base;
   }
 
@@ -108,7 +113,7 @@ window.Scheduling = (function(){
   }
   function book(p, name, date, purpose, force, cb){
     fetch('/api/book', { method:'POST', headers:{'content-type':'application/json'},
-      body: JSON.stringify({ calendarId:p.eq.cal, equipment:p.eq.name, date:date, start:p.start, end:p.end, tz:TZ, by:name, purpose:purpose, force:force }) })
+      body: JSON.stringify({ calendarId:normCal(p.eq.cal), equipment:p.eq.name, date:date, start:p.start, end:p.end, tz:TZ, by:name, purpose:purpose, force:force }) })
       .then(function(r){return r.json();}).then(cb).catch(function(e){ cb({ok:false,error:String(e)}); });
   }
   function renderResults(out){
