@@ -1,10 +1,12 @@
 :root{
-  --teal:#2F5D62; --teal-d:#234A4E; --teal-l:#5C8A8F;
-  --mint:#E8F0EE; --mint-d:#D3E2DE;
-  --ink:#16211F; --muted:#5C6B68; --faint:#8A9794;
-  --bg:#F4F7F6; --card:#FFFFFF; --line:#DCE4E2;
+  /* clean white / black / gray scheme; purple (--accent) used only for small accents */
+  --accent:#734dff; --accent-weak:#ece6ff; --accent-ink:#5a37d6;
+  --teal:#1a1a1a; --teal-d:#141518; --teal-l:#734dff;   /* legacy names remapped: primary=near-black, small-accent=purple */
+  --mint:#f3f4f6; --mint-d:#ece6ff;
+  --ink:#141518; --muted:#5b616b; --faint:#9aa0a8;
+  --bg:#f6f7f8; --card:#ffffff; --line:#e4e6ea;
   --amber:#B8791B; --amber-bg:#FBF0DC; --red:#B23A32; --red-bg:#F8E4E2; --green:#2E7D5B;
-  --radius:10px; --shadow:0 1px 2px rgba(20,40,38,.06),0 2px 8px rgba(20,40,38,.05);
+  --radius:10px; --shadow:0 1px 2px rgba(20,20,30,.05),0 2px 8px rgba(20,20,30,.05);
   --mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
   --sans:'IBM Plex Sans',-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
 }
@@ -259,3 +261,33 @@ table.bulk{border-collapse:collapse;min-width:100%}
 .bk-top{font-size:14.5px}
 .bk-when{font-family:var(--mono);font-size:12.5px;color:var(--teal-d);margin-left:4px}
 .bk-sum{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ================= Clean white/black/gray + purple accent theme ================= */
+.appbar{background:#fff;color:var(--ink);border-bottom:1px solid var(--line)}
+.brand-mark{background:var(--accent);background-image:none}
+.brand-name{color:var(--ink)}
+.brand-sub{color:var(--muted)}
+.appbar-right{gap:14px}
+.appbar-logos{display:flex;align-items:center;gap:14px}
+.appbar-logos img{display:block;width:auto}
+.appbar-logos .logo-yale{height:19px}
+.appbar-logos .logo-biohub{height:17px}
+.appbar-logos .divider{width:1px;height:20px;background:var(--line)}
+.icon-btn{background:var(--mint);color:var(--ink)}
+.icon-btn:active{background:var(--mint-d)}
+.pill-idle{background:var(--mint);color:var(--muted)}
+
+.topnav{background:#fff;border-bottom:1px solid var(--line)}
+.topnav-tab{color:var(--muted)}
+.topnav-tab.is-active{color:var(--ink);border-bottom-color:var(--accent)}
+
+/* small purple accents */
+.rsv-link{color:var(--accent)}
+.flag.lock{background:var(--accent-weak);color:var(--accent-ink)}
+.cal-cell.today{border-color:var(--accent)}
+.field input:focus,.field select:focus,.field textarea:focus,.search input:focus,
+.resrow input:focus,.resrow select:focus,.eq-times input:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent)}
+
+/* keep the app bar uncluttered on small screens */
+@media (max-width:620px){ .appbar-logos{display:none} }
+@media (max-width:420px){ .brand-sub{display:none} }
