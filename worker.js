@@ -159,6 +159,21 @@ async function postExperiment(request, env){
     await sheetsUpdate(env, token, "'"+EXP_SHEET+"'!"+colLetter(h['status'])+(idx+1), ['cancelled']);
     return { ok:true };
   }
+  if(b.action==='update'){
+    if(!(b.name||'').trim() && !(b.experimentId||'').trim()) return { ok:false, error:'missing_name' };
+    if(!(b.startDate||'').trim()) return { ok:false, error:'missing_date' };
+    const g=await sheetsBatchGet(env, token, ["'"+EXP_SHEET+"'!A1:Z5000"]); const v=g["'"+EXP_SHEET+"'!A1:Z5000"]||[]; const h=hindex(v);
+    const idx=findRow(v, 0, b.entryId); if(idx<0) return { ok:false, error:'not_found' };
+    const r=v[idx]; const headerLen=(v[0]||[]).length;
+    const row=new Array(headerLen).fill(''); for(let c=0;c<headerLen;c++) row[c]=(r[c]!=null?r[c]:''); // keep entry_id/status/created_by/created_at
+    const put=(name,val)=>{ const i=h[name]; if(i!=null) row[i]=val; };
+    put('experiment_id',b.experimentId||''); put('experiment_name',b.name||''); put('project',b.project||'');
+    put('biohub', b.biohub?'yes':'no'); put('operators',b.operators||''); put('purpose',b.purpose||'');
+    put('start_date',b.startDate||''); put('end_date',b.endDate||b.startDate||''); put('start_time',b.startTime||''); put('end_time',b.endTime||'');
+    put('whole_space', b.wholeSpace?'yes':'no');
+    await sheetsUpdate(env, token, "'"+EXP_SHEET+"'!A"+(idx+1)+":"+colLetter(headerLen-1)+(idx+1), row);
+    return { ok:true, entryId:b.entryId };
+  }
   // add
   if(!(b.name||'').trim() && !(b.experimentId||'').trim()) return { ok:false, error:'missing_name' };
   if(!(b.startDate||'').trim()) return { ok:false, error:'missing_date' };

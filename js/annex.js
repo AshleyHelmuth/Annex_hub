@@ -3,6 +3,7 @@
  * Backed by the "Annex Experiments" tab in the same Google Sheet via /api/experiments. */
 window.Annex = (function(){
   var mounted=false;
+  var editing=null;            // entryId currently being edited, or null
   var data=[];                 // active experiments
   var calMonth=firstOfMonth(new Date());
   var filterDay=null;          // ISO string when a calendar day is selected
@@ -32,7 +33,7 @@ window.Annex = (function(){
     host.innerHTML='<div class="content">'+
       '<div class="page-head"><div><h1>Annex usage</h1><div class="sub">Schedule an experiment in the Annex space and see what\u2019s coming up.</div></div></div>'+
       '<div id="annexMsg"></div>'+
-      '<details class="group" id="expFormWrap"><summary><span class="caret">▸</span><span class="g-title">＋ Schedule an experiment</span></summary>'+
+      '<details class="group" id="expFormWrap"><summary><span class="caret">▸</span><span class="g-title" id="ax_formtitle">＋ Schedule an experiment</span></summary>'+
         '<div style="padding:14px">'+
           '<div class="grid2"><div class="field"><label>Experiment ID</label><input id="ax_id" class="mono" placeholder="e.g. BCP-013"></div>'+
           '<div class="field"><label>Experiment name *</label><input id="ax_name" placeholder="e.g. BCP batch 13 GEM prep"></div></div>'+
@@ -48,7 +49,8 @@ window.Annex = (function(){
             '<label class="ax-check"><input type="checkbox" id="ax_whole"> Entire space needed</label>'+
           '</div>'+
           '<div class="grid2"><div class="field"><label>Your name</label><input id="ax_who" placeholder="e.g. Ashley Helmuth" value="'+esc(who())+'"></div><div></div></div>'+
-          '<div class="row-actions"><button class="btn btn-primary" id="ax_add">Add experiment</button></div>'+
+          '<div class="row-actions"><button class="btn btn-primary" id="ax_add">Add experiment</button>'+
+            '<button class="btn btn-ghost" id="ax_canceledit" style="display:none">Cancel edit</button></div>'+
         '</div>'+
       '</details>'+
       '<div class="page-head" style="margin:4px 0 8px"><div><h2>Upcoming experiments</h2><div class="sub" id="ax_listsub">Soonest first.</div></div><button class="btn btn-sm" id="ax_refresh">↻ Refresh</button></div>'+
@@ -59,7 +61,8 @@ window.Annex = (function(){
       '<div class="panel" id="ax_cal"></div>'+
     '</div>';
     document.getElementById('ax_who').onchange=function(){ setWho(this.value.trim()); };
-    document.getElementById('ax_add').onclick=addExperiment;
+    document.getElementById('ax_add').onclick=submitExperiment;
+    document.getElementById('ax_canceledit').onclick=cancelEdit;
     document.getElementById('ax_refresh').onclick=load;
     // default start date = today
     var sd=document.getElementById('ax_sd'); if(sd) sd.value=todayISO();
@@ -74,25 +77,46 @@ window.Annex = (function(){
     }).catch(function(){ document.getElementById('ax_list').innerHTML='<div class="error-box">Couldn\u2019t load experiments.</div>'; });
   }
 
-  function addExperiment(){
+  function submitExperiment(){
     var name=(document.getElementById('ax_name').value||'').trim();
     var sd=(document.getElementById('ax_sd').value||'').trim();
     if(!name){ return toast('Experiment name is required', true); }
     if(!sd){ return toast('Start date is required', true); }
     var ed=(document.getElementById('ax_ed').value||'').trim();
     if(ed && ed<sd){ return toast('End date is before start date', true); }
-    var btn=document.getElementById('ax_add'); btn.disabled=true; btn.textContent='Adding…';
-    var body={ action:'add', experimentId:(document.getElementById('ax_id').value||'').trim(), name:name,
+    var isEdit=!!editing;
+    var btn=document.getElementById('ax_add'); btn.disabled=true; btn.textContent=isEdit?'Saving…':'Adding…';
+    var body={ action:isEdit?'update':'add', entryId:editing||'', experimentId:(document.getElementById('ax_id').value||'').trim(), name:name,
       project:(document.getElementById('ax_proj').value||'').trim(), operators:(document.getElementById('ax_ops').value||'').trim(),
       purpose:(document.getElementById('ax_purpose').value||'').trim(), startDate:sd, endDate:ed,
       startTime:(document.getElementById('ax_st').value||'').trim(), endTime:(document.getElementById('ax_et').value||'').trim(),
       biohub:document.getElementById('ax_biohub').checked, wholeSpace:document.getElementById('ax_whole').checked, by:who() };
     fetch('/api/experiments', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body) })
       .then(function(r){return r.json();}).then(function(d){
-        btn.disabled=false; btn.textContent='Add experiment';
-        if(d&&d.ok){ toast('Experiment scheduled'); clearForm(); load(); }
-        else { toast('Error: '+((d&&d.error)||'could not add'), true); }
-      }).catch(function(){ btn.disabled=false; btn.textContent='Add experiment'; toast('Network error', true); });
+        btn.disabled=false;
+        if(d&&d.ok){ toast(isEdit?'Experiment updated':'Experiment scheduled'); setAddMode(); clearForm(); load(); }
+        else { btn.textContent=isEdit?'Save changes':'Add experiment'; toast('Error: '+((d&&d.error)||'could not save'), true); }
+      }).catch(function(){ btn.disabled=false; btn.textContent=isEdit?'Save changes':'Add experiment'; toast('Network error', true); });
+  }
+  function startEdit(x){
+    if(!x) return;
+    editing=x.entryId;
+    var set=function(id,val){ var e=document.getElementById(id); if(e) e.value=val||''; };
+    set('ax_id',x.experimentId); set('ax_name',x.name); set('ax_proj',x.project); set('ax_ops',x.operators);
+    set('ax_purpose',x.purpose); set('ax_sd',x.startDate); set('ax_ed',(x.endDate&&x.endDate!==x.startDate)?x.endDate:''); 
+    set('ax_st',x.startTime); set('ax_et',x.endTime);
+    document.getElementById('ax_biohub').checked=!!x.biohub; document.getElementById('ax_whole').checked=!!x.wholeSpace;
+    document.getElementById('ax_add').textContent='Save changes';
+    document.getElementById('ax_canceledit').style.display='';
+    var ft=document.getElementById('ax_formtitle'); if(ft) ft.textContent='Edit experiment · '+(x.name||x.experimentId||'');
+    var fw=document.getElementById('expFormWrap'); if(fw){ fw.open=true; fw.scrollIntoView({block:'start'}); }
+  }
+  function cancelEdit(){ setAddMode(); clearForm(); }
+  function setAddMode(){
+    editing=null;
+    document.getElementById('ax_add').textContent='Add experiment';
+    var ce=document.getElementById('ax_canceledit'); if(ce) ce.style.display='none';
+    var ft=document.getElementById('ax_formtitle'); if(ft) ft.textContent='＋ Schedule an experiment';
   }
   function clearForm(){
     ['ax_id','ax_name','ax_proj','ax_ops','ax_purpose','ax_ed','ax_st','ax_et'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; });
@@ -114,6 +138,9 @@ window.Annex = (function(){
     Array.prototype.forEach.call(host.querySelectorAll('[data-cancel]'),function(b){
       b.onclick=function(){ cancelExp(b.getAttribute('data-cancel')); };
     });
+    Array.prototype.forEach.call(host.querySelectorAll('[data-edit]'),function(b){
+      b.onclick=function(){ var id=b.getAttribute('data-edit'); var x=data.filter(function(e){return e.entryId===id;})[0]; startEdit(x); };
+    });
     wireClearDay();
   }
   // shared experiment card; withCancel adds the Cancel action (upcoming only)
@@ -127,7 +154,8 @@ window.Annex = (function(){
         '<div class="ax-when">'+esc(fmtRange(x))+'</div>'+
         '<div class="ax-meta">'+[x.project?('Project: '+esc(x.project)):'', x.operators?('Operators: '+esc(x.operators)):'', x.purpose?esc(x.purpose):''].filter(Boolean).join(' · ')+'</div>'+
       '</div>'+
-      (withCancel?'<button class="btn btn-sm btn-danger" data-cancel="'+esc(x.entryId)+'">Cancel</button>':'')+
+      (withCancel?'<div class="ax-actions"><button class="btn btn-sm" data-edit="'+esc(x.entryId)+'">Edit</button>'+
+        '<button class="btn btn-sm btn-danger" data-cancel="'+esc(x.entryId)+'">Cancel</button></div>':'')+
     '</div>';
   }
   function renderPast(){

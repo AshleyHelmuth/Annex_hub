@@ -243,3 +243,6 @@ table.bulk{border-collapse:collapse;min-width:100%}
 .cal-dot{margin-top:3px;min-width:16px;height:16px;line-height:16px;border-radius:999px;background:var(--teal-l);color:#fff;font-size:10px;font-weight:700;padding:0 4px;display:inline-flex;align-items:center;justify-content:center}
 .cal-dot.whole{background:var(--red)}
 @media (max-width:759px){ .cal-num{font-size:12px} .cal-dot{min-width:14px;height:14px;line-height:14px} }
+
+.ax-actions{display:flex;flex-direction:column;gap:6px;flex:none}
+@media (max-width:759px){ .ax-actions{flex-direction:row} }
