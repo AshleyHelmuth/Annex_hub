@@ -52,7 +52,7 @@ window.Scheduling = (function(){
     }).join('');
 
     host.innerHTML='<div class="content">'+
-      '<div class="page-head"><div><h1>Scheduling</h1><div class="sub">Reserve Annex equipment — bookings are written straight to each instrument\u2019s shared Google Calendar.</div></div></div>'+
+      '<div class="page-head"><div><h1>Equipment scheduling</h1><div class="sub">Reserve Annex equipment — bookings are written straight to each instrument\u2019s shared Google Calendar.</div></div></div>'+
       '<div id="schMsg"></div>'+
       '<div class="panel">'+
         '<div class="grid2"><div class="field"><label>Your name</label><input id="sch_name" placeholder="e.g. Ashley Helmuth" value="'+esc(gname())+'"></div>'+

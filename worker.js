@@ -43,8 +43,27 @@ export default {
         return json({ ok:false, error:String(e && e.message || e) }, 500);
       }
     }
-    // static assets
-    return env.ASSETS.fetch(request);
+    if (url.pathname === '/api/experiments') {
+      try {
+        if (request.method === 'GET')  return json(await listExperiments(env));
+        if (request.method === 'POST') return json(await postExperiment(request, env));
+        return json({ ok:false, error:'method_not_allowed' }, 405);
+      } catch (e) {
+        return json({ ok:false, error:String(e && e.message || e) }, 500);
+      }
+    }
+    // static assets — control caching so updates are picked up without stale copies
+    const res = await env.ASSETS.fetch(request);
+    const p = url.pathname;
+    const headers = new Headers(res.headers);
+    if (p === '/' || p.endsWith('.html')) {
+      // the HTML shell decides which JS/CSS load, so never let it go stale
+      headers.set('cache-control', 'no-store');
+    } else {
+      // JS/CSS/etc: may be cached but must revalidate with the server before use
+      headers.set('cache-control', 'no-cache');
+    }
+    return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
   }
 };
 
@@ -92,6 +111,69 @@ async function importPrivateKey(pem){
   const bin = atob(body); const buf = new Uint8Array(bin.length);
   for(let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i);
   return crypto.subtle.importKey('pkcs8', buf.buffer, {name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'}, false, ['sign']);
+}
+
+/* ---------- Annex Usage: experiment scheduling (own sheet tab) ---------- */
+const EXP_SHEET='Annex Experiments';
+const EXP_HEADERS=['entry_id','experiment_id','experiment_name','project','biohub','operators','purpose','start_date','end_date','start_time','end_time','whole_space','status','created_by','created_at'];
+async function getSheetTitles(env, token){
+  const r=await fetch(`${API}/${env.INVENTORY_SHEET_ID}?fields=sheets.properties.title`, { headers:{ authorization:'Bearer '+token } });
+  const d=await r.json(); if(d.error) throw new Error('meta: '+d.error.message);
+  return (d.sheets||[]).map(s=>s.properties.title);
+}
+async function ensureExpSheet(env, token){
+  const titles=await getSheetTitles(env, token);
+  if(titles.includes(EXP_SHEET)) return;
+  const addRes=await fetch(`${API}/${env.INVENTORY_SHEET_ID}:batchUpdate`, {
+    method:'POST', headers:{ authorization:'Bearer '+token, 'content-type':'application/json' },
+    body: JSON.stringify({ requests:[{ addSheet:{ properties:{ title:EXP_SHEET } } }] })
+  });
+  const ad=await addRes.json(); if(ad.error) throw new Error('addSheet: '+ad.error.message);
+  await sheetsUpdate(env, token, "'"+EXP_SHEET+"'!A1", EXP_HEADERS);
+}
+async function listExperiments(env){
+  if(!cfg(env)) return { ok:true, configured:false, experiments:[] };
+  const token=await getAccessToken(env);
+  const titles=await getSheetTitles(env, token);
+  if(!titles.includes(EXP_SHEET)) return { ok:true, configured:true, experiments:[] };
+  const g=await sheetsBatchGet(env, token, ["'"+EXP_SHEET+"'!A1:Z5000"]);
+  const v=g["'"+EXP_SHEET+"'!A1:Z5000"]||[]; const h=hindex(v); const out=[];
+  const yes=(x)=>/^\s*(y|yes|true|1)/i.test((x||'').toString());
+  for(let i=1;i<v.length;i++){ const r=v[i]; if(!r||!r[0]) continue;
+    out.push({ entryId:(r[0]||'').toString(), experimentId:(r[h['experiment_id']]||'').toString(),
+      name:(r[h['experiment_name']]||'').toString(), project:(r[h['project']]||'').toString(),
+      biohub:yes(r[h['biohub']]), operators:(r[h['operators']]||'').toString(), purpose:(r[h['purpose']]||'').toString(),
+      startDate:cleanDate(r[h['start_date']]), endDate:cleanDate(r[h['end_date']]),
+      startTime:(r[h['start_time']]||'').toString(), endTime:(r[h['end_time']]||'').toString(),
+      wholeSpace:yes(r[h['whole_space']]), status:(r[h['status']]||'active').toString().toLowerCase(),
+      by:(r[h['created_by']]||'').toString(), row:i+1 });
+  }
+  return { ok:true, configured:true, experiments:out };
+}
+async function postExperiment(request, env){
+  if(!cfg(env)) return { ok:false, error:'not_configured' };
+  const b=await request.json(); const token=await getAccessToken(env);
+  if(b.action==='cancel'){
+    const g=await sheetsBatchGet(env, token, ["'"+EXP_SHEET+"'!A1:Z5000"]); const v=g["'"+EXP_SHEET+"'!A1:Z5000"]||[]; const h=hindex(v);
+    const idx=findRow(v, 0, b.entryId); if(idx<0) return { ok:false, error:'not_found' };
+    await sheetsUpdate(env, token, "'"+EXP_SHEET+"'!"+colLetter(h['status'])+(idx+1), ['cancelled']);
+    return { ok:true };
+  }
+  // add
+  if(!(b.name||'').trim() && !(b.experimentId||'').trim()) return { ok:false, error:'missing_name' };
+  if(!(b.startDate||'').trim()) return { ok:false, error:'missing_date' };
+  await ensureExpSheet(env, token);
+  const g=await sheetsBatchGet(env, token, ["'"+EXP_SHEET+"'!A1:Z5000"]); const v=g["'"+EXP_SHEET+"'!A1:Z5000"]||[]; const h=hindex(v);
+  let maxN=0; for(let i=1;i<v.length;i++){ const id=(v[i]&&v[i][0]||'').toString(); const m=id.match(/AX-?0*(\d+)/i); if(m){ const n=parseInt(m[1],10); if(n>maxN)maxN=n; } }
+  const entryId='AX-'+String(maxN+1).padStart(4,'0');
+  const row=new Array(Math.max((v[0]||[]).length, EXP_HEADERS.length)).fill('');
+  const put=(name,val)=>{ const i=h[name]; if(i!=null) row[i]=val; };
+  put('entry_id',entryId); put('experiment_id',b.experimentId||''); put('experiment_name',b.name||''); put('project',b.project||'');
+  put('biohub', b.biohub?'yes':'no'); put('operators',b.operators||''); put('purpose',b.purpose||'');
+  put('start_date',b.startDate||''); put('end_date',b.endDate||b.startDate||''); put('start_time',b.startTime||''); put('end_time',b.endTime||'');
+  put('whole_space', b.wholeSpace?'yes':'no'); put('status','active'); put('created_by',b.by||''); put('created_at', nowISO());
+  await sheetsAppend(env, token, EXP_SHEET, row);
+  return { ok:true, entryId };
 }
 
 /* ---------- Google Calendar (equipment booking) ---------- */
