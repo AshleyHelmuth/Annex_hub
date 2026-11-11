@@ -32,7 +32,7 @@ window.Annex = (function(){
     host.innerHTML='<div class="content">'+
       '<div class="page-head"><div><h1>Annex usage</h1><div class="sub">Schedule an experiment in the Annex space and see what\u2019s coming up.</div></div></div>'+
       '<div id="annexMsg"></div>'+
-      '<details class="group" id="expFormWrap" open><summary><span class="caret">▸</span><span class="g-title">Schedule an experiment</span></summary>'+
+      '<details class="group" id="expFormWrap"><summary><span class="caret">▸</span><span class="g-title">＋ Schedule an experiment</span></summary>'+
         '<div style="padding:14px">'+
           '<div class="grid2"><div class="field"><label>Experiment ID</label><input id="ax_id" class="mono" placeholder="e.g. BCP-013"></div>'+
           '<div class="field"><label>Experiment name *</label><input id="ax_name" placeholder="e.g. BCP batch 13 GEM prep"></div></div>'+
