@@ -15,6 +15,7 @@ window.Scheduling = (function(){
     { name:'Chromium X',             cal:'f6113753a09a8128a9612bdda61e105c93221f89fffa2ce38c8f74631b950ed0@group.calendar.google.com', color:'#2f5c8f', start:'10:00', end:'22:00' },
     { name:'Thermocycler 1',         cal:'ac9d4e86a5b292de20497a7961f70875cc0ed4f206f65543a45f164e852c019c@group.calendar.google.com', color:'#5b6570', start:'10:00', end:'22:00' },
     { name:'Thermocycler 2',         cal:'88f86d0eb68666076b01a1cd5830a5b58d23f288abbe14cb1f0cb542858448cc@group.calendar.google.com', color:'#7a5b8f', start:'10:00', end:'22:00' },
+    { name:'qPCR',         cal:'1cfb2d1153ef0369915d285904f6c344aa0caa4193a3d379ba763590838c159f%40group.calendar.google.com', color:'#7a5b8f', start:'10:00', end:'22:00' },
     { name:'Tapestation',            cal:'1d8a15eb34be699ed8d28d9b3304dbcbc835e1fad452fb156b958cb21751f935@group.calendar.google.com', color:'#ab3939', noReserve:true }
   ];
   var mounted=false;
