@@ -46,6 +46,11 @@ window.App = (function(){
     document.getElementById('refreshBtn').onclick=function(){ setPill('busy','Refreshing…'); reload(); };
     setPill('busy','Connecting…');
     reload();
+    // build the dynamic content for whichever tab is active on load (e.g. Annex usage)
+    var active=document.querySelector('.topnav-tab.is-active');
+    var tab=active?active.getAttribute('data-tab'):'inventory';
+    if(tab==='annex' && window.Annex) Annex.mount();
+    else if(tab==='scheduling' && window.Scheduling) Scheduling.mount();
   }
 
   document.addEventListener('DOMContentLoaded', boot);

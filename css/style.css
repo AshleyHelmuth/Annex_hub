@@ -271,7 +271,7 @@ table.bulk{border-collapse:collapse;min-width:100%}
 .appbar-logos{display:flex;align-items:center;gap:14px}
 .appbar-logos img{display:block;width:auto}
 .appbar-logos .logo-yale{height:19px}
-.appbar-logos .logo-biohub{height:17px}
+.appbar-logos .logo-biohub{height:15px}
 .appbar-logos .divider{width:1px;height:20px;background:var(--line)}
 .icon-btn{background:var(--mint);color:var(--ink)}
 .icon-btn:active{background:var(--mint-d)}
