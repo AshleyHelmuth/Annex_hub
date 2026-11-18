@@ -291,3 +291,19 @@ table.bulk{border-collapse:collapse;min-width:100%}
 /* keep the app bar uncluttered on small screens */
 @media (max-width:620px){ .appbar-logos{display:none} }
 @media (max-width:420px){ .brand-sub{display:none} }
+
+/* Guidelines */
+.guide h3{font-size:15px;margin:14px 0 4px;color:var(--ink)}
+.guide h4{font-size:12.5px;margin:12px 0 4px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.guide p{margin:6px 0;color:var(--ink)}
+.guide ul{margin:6px 0 10px;padding-left:20px}
+.guide li{margin:5px 0;color:var(--ink)}
+.guide .muted{color:var(--muted)}
+.group>summary+.guide,.group .guide{padding:2px 16px 14px}
+.contacts{list-style:none;padding:0;margin:0}
+.contacts li{padding:9px 0;border-bottom:1px solid var(--line);line-height:1.5}
+.contacts li:last-child{border-bottom:none}
+.contacts .cname{font-weight:600}
+.contacts .crole{color:var(--muted);font-size:13px}
+.contacts a{color:var(--accent);text-decoration:none}
+.contacts a:hover{text-decoration:underline}
